@@ -1,0 +1,9 @@
+# BitScan - Data Sanitization & Forensic Recovery Suite
+# Dependencies
+
+# GUI Framework
+PyQt6>=6.6.0
+
+# Image validation and metadata verification
+Pillow>=10.0.0
+
