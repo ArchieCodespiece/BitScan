@@ -1,0 +1,55 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions & dynamic libraries (if using C/C++ acceleration via ctypes/Cython)
+*.so
+*.pyd
+*.dll
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables & local secrets
+.env
+.env.local
+
+# IDEs, Editors & Tooling
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# PyInstaller / Build & Distribution artifacts
+build/
+dist/
+*.manifest
+*.spec
+
+# Test files, disk images & virtual drives
+*.img
+*.raw
+*.vdi
+*.iso
+tests/sample_drive.img
+
+# Project Output Folders (Recovered files & Generated PDF Audit Reports)
+output/
+recovered_files/
+audit_reports/
+
+# Pytest / Unit Testing cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Log files
+*.log
+logs/
