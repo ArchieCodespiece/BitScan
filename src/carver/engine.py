@@ -68,15 +68,8 @@ class CarvingEngine:
                     progress_callback(offset, total_size, files_found_count)
                     last_progress_emit = offset
 
-                # Skip sector if within an already claimed range
-                in_claimed = False
-                for start, end in self.claimed_ranges:
-                    if start <= offset < end:
-                        offset = end
-                        in_claimed = True
-                        break
-                if in_claimed:
-                    continue
+                # Removed claimed_ranges check to prevent skipping large chunks of the disk
+                # when a file footer is missing. This ensures all files are found.
 
                 # Read sector header check window
                 header_window = reader.read_at(offset, max_header_len)
@@ -92,7 +85,7 @@ class CarvingEngine:
                         reader, offset, sig, output_dir, carve_id
                     )
                     if carved:
-                        self.claimed_ranges.add((offset, offset + carved.size))
+                        # We no longer add to claimed_ranges to allow finding embedded files
                         carve_id += 1
                         files_found_count += 1
                         if progress_callback:
@@ -144,13 +137,10 @@ class CarvingEngine:
         md5_hash = hashlib.md5(candidate_bytes).hexdigest()
         sha256_hash = hashlib.sha256(candidate_bytes).hexdigest()
 
-        # Score & Persist
+        # Score (DO NOT persist to disk yet)
         confidence = calculate_confidence(val_res, size_reasonable=True)
         out_filename = f"carve_{carve_id:04d}_{sig.name}{sig.extension}"
         out_path = output_dir / out_filename
-
-        with open(out_path, "wb") as f:
-            f.write(candidate_bytes)
 
         return CarvedFile(
             id=carve_id,
@@ -164,3 +154,18 @@ class CarvingEngine:
             sha256=sha256_hash,
             output_path=out_path,
         )
+
+def extract_file(source_path: str, file_meta: CarvedFile) -> bool:
+    """Extracts a specific file from the raw image and writes it to disk."""
+    try:
+        reader = RawReader(source_path, chunk_size=max(file_meta.size, 1024))
+        data = reader.read_at(file_meta.source_offset, file_meta.size)
+        reader.close()
+        if data:
+            file_meta.output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(file_meta.output_path, "wb") as f:
+                f.write(data)
+            return True
+    except Exception:
+        pass
+    return False

@@ -17,7 +17,9 @@ class RawReader:
         if not os.path.exists(self.path):
             raise FileNotFoundError(f"Source target not found: {self.path}")
 
-        self._file_obj = open(self.path, "rb")
+        # Attempt to disable buffering for raw drives on Windows to prevent io.BufferedReader seek bugs
+        is_raw_win = sys.platform == "win32" and self.path.startswith("\\\\.\\")
+        self._file_obj = open(self.path, "rb", buffering=0 if is_raw_win else -1)
         self._size = self._get_total_size()
         self._mmap_obj = None
 
@@ -33,13 +35,28 @@ class RawReader:
     def _normalize_path(self, path: str) -> str:
         """Handles cross-platform raw drive path formatting."""
         path = str(path).strip()
-        if sys.platform == "win32" and not path.startswith(r"\\.\\"):
+        if sys.platform == "win32" and not path.startswith("\\\\.\\"):
             if len(path) == 2 and path[1] == ":":
                 return rf"\\.\{path}"
         return path
 
     def _get_total_size(self) -> int:
         """Retrieves total byte size for files or physical disks."""
+        # Windows raw block device size fallback via PowerShell
+        if sys.platform == "win32" and self.path.startswith("\\\\.\\"):
+            try:
+                import subprocess
+                drive = self.path.replace("\\\\.\\", "")
+                if ":" in drive:
+                    cmd = f'(Get-CimInstance Win32_LogicalDisk -Filter "DeviceID=\'{drive}\'").Size'
+                else:
+                    cmd = f'(Get-CimInstance Win32_DiskDrive -Filter "DeviceID=\'\\\\\\\\.\\\\{drive}\'").Size'
+                res = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True, timeout=2)
+                if res.returncode == 0 and res.stdout.strip():
+                    return int(res.stdout.strip())
+            except Exception:
+                pass
+
         try:
             self._file_obj.seek(0, os.SEEK_END)
             size = self._file_obj.tell()
@@ -72,11 +89,25 @@ class RawReader:
         if self._mmap_obj is not None:
             return self._mmap_obj[offset : offset + length]
 
+        # For raw unbuffered Windows drives, length must be a multiple of the sector size
+        is_raw_win = sys.platform == "win32" and self.path.startswith("\\\\.\\")
+        read_len = length
+        if is_raw_win:
+            align = 512
+            read_len = ((length + align - 1) // align) * align
+
         try:
             self._file_obj.seek(offset)
-            return self._file_obj.read(length)
+            data = self._file_obj.read(read_len)
+            return data[:length] if data else b""
         except Exception:
-            return b""
+            # Fallback for weird edge cases (like EOF alignment)
+            try:
+                self._file_obj.seek(offset)
+                data = self._file_obj.read(length)
+                return data
+            except Exception:
+                return b""
 
     def close(self):
         if self._mmap_obj is not None:

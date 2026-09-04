@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QDesktopServices, QColor, QBrush, QFont
+from PyQt6.QtGui import QDesktopServices, QColor, QBrush, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QProgressBar, QTableWidget, QTableWidgetItem,
@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QAbstractItemView, QFrame
 )
 
-from src.carver.engine import ScanJob
+from src.carver.engine import ScanJob, extract_file
 from src.carver.signatures import SignatureStore
 from src.ui.carver_worker import CarverWorker
 from src.models.carved_file import CarvedFile, FileCategory
@@ -132,19 +132,33 @@ class CarverTab(QWidget):
         # 3. Control Buttons & Status Progress
         ctrl_layout = QHBoxLayout()
         
-        self.btn_start = QPushButton("▶  Start Deep Carving Scan")
+        self.btn_start = QPushButton(" Start Deep Carving Scan")
+        self.btn_start.setIcon(QIcon("start.png"))
         self.btn_start.setFixedHeight(36)
-        self.btn_start.setStyleSheet(
-            "background-color: #2e7d32; color: white; font-weight: bold; border-radius: 4px; padding: 0 16px;"
-        )
+        self.btn_start.setStyleSheet("""
+            QPushButton {
+                background-color: #188038; color: white; font-weight: 500; border-radius: 16px; padding: 6px 16px; 
+                border: 1px solid #188038;
+            }
+            QPushButton:hover { background-color: #137333; }
+            QPushButton:pressed { background-color: #0d652d; border: 1px solid #137333; }
+            QPushButton:disabled { background-color: #f1f3f4; color: #9aa0a6; border: 1px solid #f1f3f4; }
+        """)
         self.btn_start.clicked.connect(self._start_scan)
 
-        self.btn_stop = QPushButton("⏹  Stop Scan")
+        self.btn_stop = QPushButton(" Stop Scan")
+        self.btn_stop.setIcon(QIcon("stop.png"))
         self.btn_stop.setFixedHeight(36)
         self.btn_stop.setEnabled(False)
-        self.btn_stop.setStyleSheet(
-            "background-color: #c62828; color: white; font-weight: bold; border-radius: 4px; padding: 0 16px;"
-        )
+        self.btn_stop.setStyleSheet("""
+            QPushButton {
+                background-color: #d93025; color: white; font-weight: 500; border-radius: 16px; padding: 6px 16px; 
+                border: 1px solid #d93025;
+            }
+            QPushButton:hover { background-color: #c5221f; }
+            QPushButton:pressed { background-color: #b31412; border: 1px solid #c5221f; }
+            QPushButton:disabled { background-color: #f1f3f4; color: #9aa0a6; border: 1px solid #f1f3f4; }
+        """)
         self.btn_stop.clicked.connect(self._stop_scan)
 
         self.btn_clear_table = QPushButton("Clear Results")
@@ -160,7 +174,7 @@ class CarverTab(QWidget):
 
         # Progress bar & Status text
         self.status_label = QLabel("Status: Ready to carve.")
-        self.status_label.setStyleSheet("color: #495057; font-weight: 500;")
+        self.status_label.setStyleSheet("color: #5f6368; font-weight: 500;")
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
         self.progress_bar.setFixedHeight(18)
@@ -175,10 +189,10 @@ class CarverTab(QWidget):
         metric_layout = QHBoxLayout(metric_frame)
         metric_layout.setContentsMargins(8, 6, 8, 6)
 
-        self.lbl_stat_total = QLabel("📦 Total Recovered: <b>0</b>")
-        self.lbl_stat_images = QLabel("🖼️ Images: <b>0</b>")
-        self.lbl_stat_docs = QLabel("📄 Documents: <b>0</b>")
-        self.lbl_stat_archives = QLabel("🗜️ Archives: <b>0</b>")
+        self.lbl_stat_total = QLabel("<img src='recover.png' width='16' height='16'> Total Recovered: <b>0</b>")
+        self.lbl_stat_images = QLabel("<img src='photo.png' width='16' height='16'> Images: <b>0</b>")
+        self.lbl_stat_docs = QLabel("<img src='documents.png' width='16' height='16'> Documents: <b>0</b>")
+        self.lbl_stat_archives = QLabel("<img src='archives.png' width='16' height='16'> Archives: <b>0</b>")
         self.lbl_stat_high_conf = QLabel("⭐ High Confidence (≥80%): <b>0</b>")
 
         metric_layout.addWidget(self.lbl_stat_total)
@@ -217,14 +231,31 @@ class CarverTab(QWidget):
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
         self.btn_open_folder.clicked.connect(self._open_output_folder)
         
-        self.btn_view_report = QPushButton("📊 View Forensic HTML Report")
+        self.btn_extract_selected = QPushButton(" Extract Selected Files")
+        self.btn_extract_selected.setIcon(QIcon("recover.png"))
+        self.btn_extract_selected.setEnabled(False)
+        self.btn_extract_selected.clicked.connect(self._extract_selected_files)
+        self.btn_extract_selected.setStyleSheet("""
+            QPushButton {
+                background-color: #1a73e8; color: white; font-weight: 500; border-radius: 16px; padding: 6px 16px; 
+                border: 1px solid #1a73e8;
+            }
+            QPushButton:hover { background-color: #185abc; }
+            QPushButton:pressed { background-color: #174ea6; border: 1px solid #185abc; }
+            QPushButton:disabled { background-color: #f1f3f4; color: #9aa0a6; border: 1px solid #f1f3f4; }
+        """)
+        
+        self.btn_view_report = QPushButton(" View Forensic HTML Report")
+        self.btn_view_report.setIcon(QIcon("forensic_report.png"))
         self.btn_view_report.setEnabled(False)
         self.btn_view_report.clicked.connect(self._open_report)
 
-        self.btn_view_manifest = QPushButton("📋 View Manifest (JSON)")
+        self.btn_view_manifest = QPushButton(" View Manifest (JSON)")
+        self.btn_view_manifest.setIcon(QIcon("manifest.png"))
         self.btn_view_manifest.setEnabled(False)
         self.btn_view_manifest.clicked.connect(self._open_manifest)
 
+        action_layout.addWidget(self.btn_extract_selected)
         action_layout.addWidget(self.btn_open_folder)
         action_layout.addWidget(self.btn_view_report)
         action_layout.addWidget(self.btn_view_manifest)
@@ -294,14 +325,15 @@ class CarverTab(QWidget):
         self._update_metrics()
         self.progress_bar.setValue(0)
         self.status_label.setText("Status: Ready to carve.")
+        self.btn_extract_selected.setEnabled(False)
         self.btn_view_report.setEnabled(False)
         self.btn_view_manifest.setEnabled(False)
 
     def _update_metrics(self):
-        self.lbl_stat_total.setText(f"📦 Total Recovered: <b>{self.total_carved_count}</b>")
-        self.lbl_stat_images.setText(f"🖼️ Images: <b>{self.category_counts[FileCategory.IMAGE]}</b>")
-        self.lbl_stat_docs.setText(f"📄 Documents: <b>{self.category_counts[FileCategory.DOCUMENT]}</b>")
-        self.lbl_stat_archives.setText(f"🗜️ Archives: <b>{self.category_counts[FileCategory.ARCHIVE]}</b>")
+        self.lbl_stat_total.setText(f"<img src='recover.png' width='16' height='16'> Total Recovered: <b>{self.total_carved_count}</b>")
+        self.lbl_stat_images.setText(f"<img src='photo.png' width='16' height='16'> Images: <b>{self.category_counts[FileCategory.IMAGE]}</b>")
+        self.lbl_stat_docs.setText(f"<img src='documents.png' width='16' height='16'> Documents: <b>{self.category_counts[FileCategory.DOCUMENT]}</b>")
+        self.lbl_stat_archives.setText(f"<img src='archives.png' width='16' height='16'> Archives: <b>{self.category_counts[FileCategory.ARCHIVE]}</b>")
         self.lbl_stat_high_conf.setText(f"⭐ High Confidence (≥80%): <b>{self.high_conf_count}</b>")
 
     def _start_scan(self):
@@ -382,6 +414,9 @@ class CarverTab(QWidget):
 
         item_id = QTableWidgetItem(f"#{carved.id}")
         item_id.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item_id.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        item_id.setCheckState(Qt.CheckState.Unchecked)
+        item_id.setData(Qt.ItemDataRole.UserRole, carved)
         
         filename = carved.output_path.name if carved.output_path else f"carve_{carved.id}"
         item_name = QTableWidgetItem(filename)
@@ -434,19 +469,21 @@ class CarverTab(QWidget):
         self.status_label.setText(f"Status: Scan Complete! Successfully recovered {count} files.")
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
+        self.btn_extract_selected.setEnabled(True)
         self.btn_view_report.setEnabled(True)
         self.btn_view_manifest.setEnabled(True)
 
         QMessageBox.information(
             self,
             "Scan Completed",
-            f"Carving finished.\nTotal artifacts recovered: {count}\nReport generated in output folder."
+            f"Carving finished.\nTotal artifacts found: {count}\nSelect files in the table and click 'Extract Selected' to recover them."
         )
 
     def _on_scan_cancelled(self, count: int):
         self.status_label.setText(f"Status: Scan stopped by user. Recovered {count} files prior to halt.")
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
+        self.btn_extract_selected.setEnabled(True)
         self.btn_view_report.setEnabled(True)
         self.btn_view_manifest.setEnabled(True)
 
@@ -455,6 +492,24 @@ class CarverTab(QWidget):
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         QMessageBox.critical(self, "Scan Error", f"An error occurred during carving:\n{err_msg}")
+
+    def _extract_selected_files(self):
+        src_path = self.src_input.text().strip()
+        count = 0
+        for row in range(self.table.rowCount()):
+            item_id = self.table.item(row, 0)
+            if item_id and item_id.checkState() == Qt.CheckState.Checked:
+                carved: CarvedFile = item_id.data(Qt.ItemDataRole.UserRole)
+                if carved:
+                    success = extract_file(src_path, carved)
+                    if success:
+                        count += 1
+                        item_id.setCheckState(Qt.CheckState.Unchecked) # Uncheck on success
+        
+        if count > 0:
+            QMessageBox.information(self, "Extraction Complete", f"Successfully extracted {count} files to output directory.")
+        else:
+            QMessageBox.warning(self, "No Files Selected", "Please check the boxes in the ID column next to the files you want to extract.")
 
     def _on_row_double_clicked(self, row: int, col: int):
         item = self.table.item(row, 1)

@@ -38,6 +38,57 @@ def list_storage_devices() -> List[StorageDevice]:
         except Exception:
             pass
 
+    elif sys.platform == "win32":
+        try:
+            # Use PowerShell to get logical drives as JSON
+            ps_cmd = (
+                "Get-CimInstance Win32_LogicalDisk | "
+                "Select-Object DeviceID, VolumeName, Size, DriveType | "
+                "ConvertTo-Json -Compress"
+            )
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                data = json.loads(res.stdout)
+                # If only one drive exists, ConvertTo-Json returns a dict instead of a list
+                if isinstance(data, dict):
+                    data = [data]
+                    
+                for disk in data:
+                    device_id = disk.get("DeviceID", "")  # e.g., "C:"
+                    if not device_id:
+                        continue
+                    
+                    vol_name = disk.get("VolumeName") or "Local Disk"
+                    size_bytes = disk.get("Size")
+                    if size_bytes:
+                        # Convert to GB or MB
+                        gb = size_bytes / (1024**3)
+                        size_str = f"{gb:.1f}G" if gb >= 1 else f"{size_bytes / (1024**2):.1f}M"
+                    else:
+                        size_str = "Unknown"
+                        
+                    drive_type = disk.get("DriveType")
+                    dev_type = "usb" if drive_type == 2 else "disk"
+                    is_sys = (device_id.upper() == "C:")
+                    
+                    dev = StorageDevice(
+                        name=f"{device_id} ({vol_name})",
+                        device_path=rf"\\.\{device_id}",  # Raw device path for Windows (e.g., \\.\F:)
+                        size_str=size_str,
+                        device_type=dev_type,
+                        mountpoint=device_id,
+                        model=vol_name,
+                        is_system_drive=is_sys,
+                    )
+                    devices.append(dev)
+        except Exception:
+            pass
+
     return devices
 
 

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.ui.carver_tab import CarverTab
+from src.ui.shredder_tab import ShredderTab
 
 
 class MainWindow(QMainWindow):
@@ -32,7 +33,7 @@ class MainWindow(QMainWindow):
 
         # Build each module tab
         self.carver_tab = CarverTab()
-        self.shredder_tab = self.build_shredder_tab()
+        self.shredder_tab = ShredderTab()
         self.eraser_tab = self.build_eraser_tab()
 
         self.tabs.addTab(self.carver_tab, "🔬 Forensic File Carver")
@@ -45,161 +46,183 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("BitScan Suite Initialized | Ready")
 
     def _apply_theme(self):
-        """Applies a clean, modern forensic tool aesthetic stylesheet."""
+        """Applies a clean, Material-inspired Google Chrome light theme."""
         self.setStyleSheet("""
-            QMainWindow {
-                background-color: #f4f6f8;
+            QMainWindow, QWidget {
+                background-color: #ffffff;
+                color: #202124;
+                font-family: "Segoe UI", "Roboto", "Inter", sans-serif;
             }
+            
+            /* Chrome-like Tab Bar area */
             QTabWidget::pane {
-                border: 1px solid #cfd8dc;
-                background: #ffffff;
+                border: 1px solid #dadce0;
+                background-color: #ffffff;
+                border-radius: 8px;
                 top: -1px;
             }
+            QTabWidget::tab-bar {
+                alignment: left;
+            }
             QTabBar::tab {
-                background: #eceff1;
-                border: 1px solid #cfd8dc;
-                border-bottom-color: #cfd8dc;
+                background-color: #f1f3f4;
+                border: 1px solid transparent;
+                border-bottom: 1px solid #dadce0;
                 padding: 10px 24px;
                 font-size: 13px;
-                font-weight: bold;
-                color: #455a64;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
+                font-weight: 500;
+                color: #5f6368;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
                 margin-right: 2px;
+                margin-top: 6px;
             }
             QTabBar::tab:selected {
-                background: #ffffff;
-                border-bottom-color: #ffffff;
-                color: #1565c0;
+                background-color: #ffffff;
+                color: #1a73e8;
+                border: 1px solid #dadce0;
+                border-bottom: 1px solid #ffffff;
+                border-top: 3px solid #1a73e8;
             }
             QTabBar::tab:hover:!selected {
-                background: #e0e0e0;
+                background-color: #e8eaed;
+                color: #202124;
             }
+            
+            /* Group Boxes (Cards) */
             QGroupBox {
-                font-weight: bold;
-                border: 1px solid #cfd8dc;
-                border-radius: 6px;
-                margin-top: 10px;
-                padding-top: 14px;
+                font-weight: 600;
+                font-size: 13px;
+                border: 1px solid #dadce0;
+                border-radius: 8px;
+                margin-top: 16px;
+                padding-top: 18px;
                 background-color: #ffffff;
+                color: #202124;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 12px;
-                padding: 0 6px;
-                color: #263238;
+                padding: 0 8px;
+                color: #1a73e8;
+                background-color: #ffffff;
             }
+            
+            /* Inputs (Search bar style) */
             QLineEdit, QComboBox {
-                border: 1px solid #b0bec5;
-                border-radius: 4px;
-                padding: 6px 10px;
-                background: #ffffff;
-                font-size: 12px;
+                border: 1px solid #dadce0;
+                border-radius: 16px; /* Pill shape */
+                padding: 6px 16px;
+                background-color: #f1f3f4;
+                color: #202124;
+                font-size: 13px;
             }
             QLineEdit:focus, QComboBox:focus {
-                border: 1px solid #1976d2;
+                border: 2px solid #1a73e8;
+                background-color: #ffffff;
+                padding: 5px 15px; /* Adjust for thicker border */
             }
+            QComboBox::drop-down {
+                border-left: none;
+                width: 24px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #ffffff;
+                color: #202124;
+                selection-background-color: #e8f0fe;
+                selection-color: #1a73e8;
+                border: 1px solid #dadce0;
+                border-radius: 8px;
+            }
+            
+            /* General Buttons */
             QPushButton {
-                background-color: #eceff1;
-                border: 1px solid #b0bec5;
-                border-radius: 4px;
-                padding: 6px 14px;
-                font-size: 12px;
+                background-color: #ffffff;
+                border: 1px solid #dadce0;
+                border-radius: 16px; /* Pill shape */
+                padding: 8px 16px;
+                font-size: 13px;
                 font-weight: 500;
-                color: #263238;
+                color: #1a73e8;
             }
             QPushButton:hover {
-                background-color: #cfd8dc;
+                background-color: #f8f9fa;
+                border: 1px solid #d2e3fc;
             }
             QPushButton:pressed {
-                background-color: #b0bec5;
+                background-color: #e8f0fe;
+                color: #174ea6;
+                border: 1px solid #1a73e8;
             }
+            QPushButton:disabled {
+                background-color: #f1f3f4;
+                color: #9aa0a6;
+                border: 1px solid #f1f3f4;
+            }
+            
+            /* Progress Bar */
             QProgressBar {
-                border: 1px solid #b0bec5;
+                border: none;
                 border-radius: 4px;
                 text-align: center;
-                background: #eceff1;
-                font-weight: bold;
-                font-size: 11px;
+                background-color: #e8eaed;
+                font-weight: 500;
+                font-size: 12px;
+                color: #202124;
             }
             QProgressBar::chunk {
-                background-color: #1976d2;
-                border-radius: 3px;
+                background-color: #1a73e8;
+                border-radius: 4px;
             }
+            
+            /* Data Table */
             QTableWidget {
-                border: 1px solid #cfd8dc;
-                gridline-color: #eceff1;
+                border: 1px solid #dadce0;
+                gridline-color: #f1f3f4;
                 background-color: #ffffff;
-                font-size: 12px;
+                color: #202124;
+                font-size: 13px;
+                alternate-background-color: #f8f9fa;
+                selection-background-color: #e8f0fe;
+                selection-color: #1a73e8;
+                border-radius: 8px;
             }
             QHeaderView::section {
-                background-color: #eceff1;
-                padding: 6px;
-                border: 1px solid #cfd8dc;
-                font-weight: bold;
-                color: #37474f;
+                background-color: #f8f9fa;
+                padding: 8px;
+                border: none;
+                border-right: 1px solid #dadce0;
+                border-bottom: 2px solid #dadce0;
+                font-weight: 600;
+                color: #5f6368;
             }
-            QFrame[frameShape="1"] { /* StyledPanel */
-                background-color: #f1f5f9;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
+            QTableCornerButton::section {
+                background-color: #f8f9fa;
+                border: none;
+            }
+            
+            /* Status Bar & Misc */
+            QStatusBar {
+                background-color: #f1f3f4;
+                color: #5f6368;
+                border-top: 1px solid #dadce0;
+            }
+            QCheckBox {
+                spacing: 8px;
+                color: #202124;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 2px solid #5f6368;
+                border-radius: 4px;
+                background: #ffffff;
+            }
+            QCheckBox::indicator:checked {
+                background: #1a73e8;
+                border: 2px solid #1a73e8;
             }
         """)
-
-    # ---------------------------------------------------------
-    # TAB 2: File Shredder Visual View
-    # ---------------------------------------------------------
-    def build_shredder_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(12)
-        layout.setContentsMargins(16, 16, 16, 16)
-
-        group = QGroupBox("Target File / Folder Selection for Sanitization")
-        group_layout = QHBoxLayout()
-        btn_file = QPushButton("📄 Select Files...")
-        btn_folder = QPushButton("📁 Select Folder...")
-        group_layout.addWidget(btn_file)
-        group_layout.addWidget(btn_folder)
-        group_layout.addStretch()
-        group.setLayout(group_layout)
-        layout.addWidget(group)
-
-        table = QTableWidget(2, 3)
-        table.setHorizontalHeaderLabels(["Target Path", "Size", "Status"])
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        table.setItem(0, 0, QTableWidgetItem("/home/user/documents/confidential_sample.pdf"))
-        table.setItem(0, 1, QTableWidgetItem("2.4 MB"))
-        table.setItem(0, 2, QTableWidgetItem("Queued"))
-        table.setItem(1, 0, QTableWidgetItem("/home/user/images/sensitive_photo.png"))
-        table.setItem(1, 1, QTableWidgetItem("1.1 MB"))
-        table.setItem(1, 2, QTableWidgetItem("Queued"))
-        layout.addWidget(table)
-
-        ctrl_group = QGroupBox("Sanitization Method")
-        ctrl_layout = QHBoxLayout()
-        method_combo = QComboBox()
-        method_combo.addItems([
-            "DoD 5220.22-M (3 Passes - Overwrite with 0s, 1s, Random)",
-            "NIST SP 800-88 Rev 1 (Single Pass Zero Fill)",
-            "Gutmann Algorithm (35 Passes - High Security)",
-            "Pseudorandom Data Fill (1 Pass)"
-        ])
-        ctrl_layout.addWidget(QLabel("Erasure Standard:"))
-        ctrl_layout.addWidget(method_combo)
-        ctrl_layout.addStretch()
-        ctrl_group.setLayout(ctrl_layout)
-        layout.addWidget(ctrl_group)
-
-        progress = QProgressBar()
-        progress.setValue(0)
-        btn_shred = QPushButton("⚠️ Permanently Shred Selected Files")
-        btn_shred.setFixedHeight(38)
-        btn_shred.setStyleSheet("background-color: #d32f2f; color: white; font-weight: bold; font-size: 13px;")
-
-        layout.addWidget(progress)
-        layout.addWidget(btn_shred)
-        return tab
 
     # ---------------------------------------------------------
     # TAB 3: Drive Eraser Visual View
