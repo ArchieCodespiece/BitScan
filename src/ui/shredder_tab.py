@@ -69,11 +69,11 @@ class ShredderTab(QWidget):
         group_layout = QHBoxLayout()
         
         btn_file = QPushButton(" Select Files...")
-        btn_file.setIcon(QIcon("documents.png"))
+        btn_file.setIcon(QIcon("assets/documents.png"))
         btn_file.clicked.connect(self._add_files)
         
         btn_folder = QPushButton(" Select Folder...")
-        btn_folder.setIcon(QIcon("archives.png"))
+        btn_folder.setIcon(QIcon("assets/archives.png"))
         btn_folder.clicked.connect(self._add_folder)
         
         btn_clear = QPushButton(" Clear List")
@@ -106,7 +106,7 @@ class ShredderTab(QWidget):
         self.method_combo.setCurrentIndex(2)
 
         self.btn_shred = QPushButton(" PERMANENTLY DESTROY DATA")
-        self.btn_shred.setIcon(QIcon("stop.png"))
+        self.btn_shred.setIcon(QIcon("assets/stop.png"))
         self.btn_shred.setStyleSheet("""
             QPushButton {
                 background-color: #d93025; color: white; font-weight: bold; border-radius: 16px; padding: 8px 24px; 

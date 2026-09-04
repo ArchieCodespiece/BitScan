@@ -133,7 +133,7 @@ class CarverTab(QWidget):
         ctrl_layout = QHBoxLayout()
         
         self.btn_start = QPushButton(" Start Deep Carving Scan")
-        self.btn_start.setIcon(QIcon("start.png"))
+        self.btn_start.setIcon(QIcon("assets/start.png"))
         self.btn_start.setFixedHeight(36)
         self.btn_start.setStyleSheet("""
             QPushButton {
@@ -147,7 +147,7 @@ class CarverTab(QWidget):
         self.btn_start.clicked.connect(self._start_scan)
 
         self.btn_stop = QPushButton(" Stop Scan")
-        self.btn_stop.setIcon(QIcon("stop.png"))
+        self.btn_stop.setIcon(QIcon("assets/stop.png"))
         self.btn_stop.setFixedHeight(36)
         self.btn_stop.setEnabled(False)
         self.btn_stop.setStyleSheet("""
@@ -189,10 +189,10 @@ class CarverTab(QWidget):
         metric_layout = QHBoxLayout(metric_frame)
         metric_layout.setContentsMargins(8, 6, 8, 6)
 
-        self.lbl_stat_total = QLabel("<img src='recover.png' width='16' height='16'> Total Recovered: <b>0</b>")
-        self.lbl_stat_images = QLabel("<img src='photo.png' width='16' height='16'> Images: <b>0</b>")
-        self.lbl_stat_docs = QLabel("<img src='documents.png' width='16' height='16'> Documents: <b>0</b>")
-        self.lbl_stat_archives = QLabel("<img src='archives.png' width='16' height='16'> Archives: <b>0</b>")
+        self.lbl_stat_total = QLabel("<img src='assets/recover.png' width='16' height='16'> Total Recovered: <b>0</b>")
+        self.lbl_stat_images = QLabel("<img src='assets/photo.png' width='16' height='16'> Images: <b>0</b>")
+        self.lbl_stat_docs = QLabel("<img src='assets/documents.png' width='16' height='16'> Documents: <b>0</b>")
+        self.lbl_stat_archives = QLabel("<img src='assets/archives.png' width='16' height='16'> Archives: <b>0</b>")
         self.lbl_stat_high_conf = QLabel("⭐ High Confidence (≥80%): <b>0</b>")
 
         metric_layout.addWidget(self.lbl_stat_total)
@@ -232,7 +232,7 @@ class CarverTab(QWidget):
         self.btn_open_folder.clicked.connect(self._open_output_folder)
         
         self.btn_extract_selected = QPushButton(" Extract Selected Files")
-        self.btn_extract_selected.setIcon(QIcon("recover.png"))
+        self.btn_extract_selected.setIcon(QIcon("assets/recover.png"))
         self.btn_extract_selected.setEnabled(False)
         self.btn_extract_selected.clicked.connect(self._extract_selected_files)
         self.btn_extract_selected.setStyleSheet("""
@@ -246,12 +246,12 @@ class CarverTab(QWidget):
         """)
         
         self.btn_view_report = QPushButton(" View Forensic HTML Report")
-        self.btn_view_report.setIcon(QIcon("forensic_report.png"))
+        self.btn_view_report.setIcon(QIcon("assets/forensic_report.png"))
         self.btn_view_report.setEnabled(False)
         self.btn_view_report.clicked.connect(self._open_report)
 
         self.btn_view_manifest = QPushButton(" View Manifest (JSON)")
-        self.btn_view_manifest.setIcon(QIcon("manifest.png"))
+        self.btn_view_manifest.setIcon(QIcon("assets/manifest.png"))
         self.btn_view_manifest.setEnabled(False)
         self.btn_view_manifest.clicked.connect(self._open_manifest)
 
@@ -330,10 +330,10 @@ class CarverTab(QWidget):
         self.btn_view_manifest.setEnabled(False)
 
     def _update_metrics(self):
-        self.lbl_stat_total.setText(f"<img src='recover.png' width='16' height='16'> Total Recovered: <b>{self.total_carved_count}</b>")
-        self.lbl_stat_images.setText(f"<img src='photo.png' width='16' height='16'> Images: <b>{self.category_counts[FileCategory.IMAGE]}</b>")
-        self.lbl_stat_docs.setText(f"<img src='documents.png' width='16' height='16'> Documents: <b>{self.category_counts[FileCategory.DOCUMENT]}</b>")
-        self.lbl_stat_archives.setText(f"<img src='archives.png' width='16' height='16'> Archives: <b>{self.category_counts[FileCategory.ARCHIVE]}</b>")
+        self.lbl_stat_total.setText(f"<img src='assets/recover.png' width='16' height='16'> Total Recovered: <b>{self.total_carved_count}</b>")
+        self.lbl_stat_images.setText(f"<img src='assets/photo.png' width='16' height='16'> Images: <b>{self.category_counts[FileCategory.IMAGE]}</b>")
+        self.lbl_stat_docs.setText(f"<img src='assets/documents.png' width='16' height='16'> Documents: <b>{self.category_counts[FileCategory.DOCUMENT]}</b>")
+        self.lbl_stat_archives.setText(f"<img src='assets/archives.png' width='16' height='16'> Archives: <b>{self.category_counts[FileCategory.ARCHIVE]}</b>")
         self.lbl_stat_high_conf.setText(f"⭐ High Confidence (≥80%): <b>{self.high_conf_count}</b>")
 
     def _start_scan(self):
