@@ -1,0 +1,52 @@
+{
+  "signatures": [
+    {
+      "name": "jpeg",
+      "extension": ".jpg",
+      "header_hex": "ffd8ff",
+      "footer_hex": "ffd9",
+      "max_size_mb": 25,
+      "category": "image"
+    },
+    {
+      "name": "png",
+      "extension": ".png",
+      "header_hex": "89504e470d0a1a0a",
+      "footer_hex": "49454e44ae426082",
+      "max_size_mb": 25,
+      "category": "image"
+    },
+    {
+      "name": "pdf",
+      "extension": ".pdf",
+      "header_hex": "25504446",
+      "footer_hex": "2525454f46",
+      "max_size_mb": 100,
+      "category": "document"
+    },
+    {
+      "name": "zip",
+      "extension": ".zip",
+      "header_hex": "504b0304",
+      "footer_hex": "504b0506",
+      "max_size_mb": 500,
+      "category": "archive"
+    },
+    {
+      "name": "gif",
+      "extension": ".gif",
+      "header_hex": "47494638",
+      "footer_hex": "003b",
+      "max_size_mb": 25,
+      "category": "image"
+    },
+    {
+      "name": "bmp",
+      "extension": ".bmp",
+      "header_hex": "424d",
+      "footer_hex": null,
+      "max_size_mb": 50,
+      "category": "image"
+    }
+  ]
+}
