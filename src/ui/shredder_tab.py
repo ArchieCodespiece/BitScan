@@ -3,6 +3,7 @@ File & Folder Shredder UI Component
 Features Drive Media Pre-Detection (HDD vs NVMe/SSD), NIST/DoD standards, and an interactive Standards Guide.
 """
 import os
+import sys
 from pathlib import Path
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon, QColor, QBrush, QFont
@@ -14,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.shredder.engine import ShredMethod, ALGORITHM_DESCRIPTIONS, shred_file
+from src.shredder.audit import AuditSession
 from src.utils.device_scanner import get_path_media_info, PathMediaInfo
 
 
@@ -98,10 +100,11 @@ class AlgorithmInfoDialog(QDialog):
 class ShredWorker(QThread):
     progress_updated = pyqtSignal(int, int)  # file_index, total_files
     file_status = pyqtSignal(int, str, str)  # row_index, status, color_hex
-    finished_all = pyqtSignal(int, int)      # success_count, fail_count
+    finished_all = pyqtSignal(int, int, str) # success_count, fail_count, audit_dir
 
-    def __init__(self, files: list[tuple[int, str]], method: ShredMethod):
+    def __init__(self, files: list[tuple[int, str, str, bool]], method: ShredMethod):
         super().__init__()
+        # each entry: (table_row, file_path, media_type, is_ssd)
         self.files = files
         self.method = method
         self._is_cancelled = False
@@ -110,26 +113,63 @@ class ShredWorker(QThread):
         success_count = 0
         fail_count = 0
         total = len(self.files)
+        audit_path = ""
+        session = AuditSession()
+        session.begin_session(
+            method=self.method.value,
+            total_files=total,
+            platform=sys.platform,
+        )
+        any_ssd = any(is_ssd for _, _, _, is_ssd in self.files)
 
-        for i, (row_idx, file_path) in enumerate(self.files):
+        for i, (row_idx, file_path, media_type, is_ssd) in enumerate(self.files):
             if self._is_cancelled:
                 break
 
             self.file_status.emit(row_idx, "Overwriting...", "#f57f17")
 
-            # Execute hardened shredding
-            success = shred_file(file_path, self.method)
+            result = shred_file(
+                file_path,
+                self.method,
+                media_type=media_type,
+                is_ssd=is_ssd,
+                audit=session,
+            )
 
-            if success:
+            if result.success and result.verified:
                 success_count += 1
-                self.file_status.emit(row_idx, "Destroyed & Unlinked", "#188038")
+                self.file_status.emit(row_idx, "Destroyed, Verified & Unlinked", "#188038")
+            elif result.success:
+                success_count += 1
+                self.file_status.emit(row_idx, "Destroyed & Unlinked", "#f57f17")
             else:
                 fail_count += 1
                 self.file_status.emit(row_idx, "Failed", "#d93025")
 
+            session.add_summary({
+                "id": i + 1,
+                "file_path": file_path,
+                "size_bytes": result.size_before,
+                "media_type": media_type or "Unknown",
+                "is_ssd": is_ssd,
+                "method": self.method.value,
+                "passes": result.passes,
+                "slack_bytes": result.slack_bytes,
+                "sha256_before": result.sha256_before,
+                "sha256_after": result.sha256_after,
+                "verified": result.verified,
+                "duration_ms": result.duration_ms,
+                "status": "destroyed" if result.success else "failed",
+                "errors": result.errors,
+            })
+
             self.progress_updated.emit(i + 1, total)
 
-        self.finished_all.emit(success_count, fail_count)
+        info = session.finalize(ssd_notice=any_ssd)
+        if info:
+            audit_path = info["dir"]
+
+        self.finished_all.emit(success_count, fail_count, audit_path)
 
     def cancel(self):
         self._is_cancelled = True
@@ -330,6 +370,7 @@ class ShredderTab(QWidget):
         media_badge = "SSD / NVMe" if media_info.is_ssd else "HDD / Loop"
 
         item_path = QTableWidgetItem(file_path)
+        item_path.setData(Qt.ItemDataRole.UserRole, media_info)  # reuse in worker
         item_size = QTableWidgetItem(size_str)
         item_media = QTableWidgetItem(media_badge)
         item_status = QTableWidgetItem("Queued")
@@ -429,10 +470,16 @@ class ShredderTab(QWidget):
         self.btn_shred.setEnabled(False)
 
         files_to_shred = []
+        any_ssd = False
         for row in range(self.table.rowCount()):
             item = self.table.item(row, 0)
             if item:
-                files_to_shred.append((row, item.text()))
+                media_info = item.data(Qt.ItemDataRole.UserRole)
+                is_ssd = bool(media_info.is_ssd) if media_info else False
+                media_type = media_info.media_type if media_info else "Unknown"
+                if is_ssd:
+                    any_ssd = True
+                files_to_shred.append((row, item.text(), media_type, is_ssd))
 
         self.progress_bar.setValue(0)
         self.status_label.setText("Status: Shredding in progress...")
@@ -455,12 +502,16 @@ class ShredderTab(QWidget):
         self.progress_bar.setValue(pct)
         self.status_label.setText(f"Status: Sanitizing... {current} of {total} files destroyed.")
 
-    def _on_finished(self, success: int, fail: int):
+    def _on_finished(self, success: int, fail: int, audit_path: str):
         self.btn_shred.setEnabled(True)
         self.progress_bar.setValue(100)
         self.status_label.setText(f"Status: Sanitization complete. Destroyed: {success}, Failed: {fail}")
+
+        msg = f"Successfully destroyed {success} files.\nFailed to shred {fail} files."
+        if success and audit_path:
+            msg += f"\n\nAudit trail (tamper-evident, hash-chained):\n{audit_path}"
         QMessageBox.information(
             self,
             "Shredding Complete",
-            f"Successfully destroyed {success} files.\nFailed to shred {fail} files.",
+            msg,
         )
