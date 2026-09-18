@@ -58,7 +58,19 @@ Built using Python for rapid orchestration but powered by **PyQt6 (C++ Qt framew
 * **Core Orchestrator:** Python 3 (Bypassing GIL limitations via `QThread` workers).
 * **Hardware API Bridge:** `subprocess` integration with Windows PowerShell (`Get-CimInstance`) to safely mount raw Win32 Handles.
 * **UI Layer:** PyQt6 Native Framework with custom QSS Material Design styling.
-* **Integrity Engine:** Built-in SHA-256 cryptographic hashing to maintain the digital chain of custody.
+* **Integrity Engine:** Built-in SHA-256 hashing to maintain the digital chain of custody (per-file readback verification, tamper-evident hash-chained audit trail under `~/.bitscan/audit/`).
+
+---
+
+## ⚖️ Honest Engineering Limits
+
+Security claims for this tool are scoped to what is physically achievable through standard file I/O:
+
+- **NIST SP 800-88 Rev. 1 Clear (HDD):** single random-pass overwrite of the file's logical extent + `fsync` + cluster-slack wipe + best-effort metadata scrub. Meets *Clear* for the file extent on magnetic media. File slack is wiped up to the filesystem allocation boundary (`st_blocks`).
+- **Metadata scrub is best-effort:** NTFS `$MFT` record interior bytes, `$LogFile`, USN journal, alternate data streams, and POSIX xattrs are not reachable via safe file I/O.
+- **SSD / NVMe / USB flash:** logical sectors are overwritten, but wear-leveling/FTL may retain stale NAND blocks. True sanitization requires device-level ATA Secure Erase / NVMe-Format (drive sanitizer out of scope for now).
+- **DoD 5220.22-M:** kept for legacy compliance policies; NIST 800-88 Rev. 1 no longer recommends multi-pass.
+- **BitScan CES:** experimental proprietary entropy stream, shown for novelty only; not byte-verifiable and not an industry standard.
 
 ---
 
