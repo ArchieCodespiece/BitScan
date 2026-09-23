@@ -1,6 +1,8 @@
 """
 PyQt Worker Thread for Asynchronous Forensic Carving Execution
+Includes live speed, throughput, and ETA telemetry.
 """
+import time
 from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 from src.carver.engine import CarvingEngine, ScanJob
@@ -10,9 +12,10 @@ from src.models.carved_file import CarvedFile
 
 
 class CarverWorker(QThread):
-    # Signals:
-    # progress_updated: (percentage 0-100, current_bytes, total_bytes)
+    # Standard progress: (percentage 0-100, current_bytes, total_bytes)
     progress_updated = pyqtSignal(int, int, int)
+    # Advanced Telemetry: (percentage, current_bytes, total_bytes, speed_mb_s, elapsed_sec, eta_sec)
+    telemetry_updated = pyqtSignal(int, int, int, float, float, float)
     # file_found: emits CarvedFile instances as they are carved
     file_found = pyqtSignal(object)
     # scan_completed: emits (total_files_count, report_info_dict)
@@ -40,10 +43,42 @@ class CarverWorker(QThread):
             engine = CarvingEngine(sig_store)
             self._carved_files.clear()
 
+            start_time = time.perf_counter()
+            last_time = start_time
+            last_bytes = 0
+            smooth_speed = 0.0
+
             def progress_cb(current_offset: int, total_size: int, count: int):
+                nonlocal last_time, last_bytes, smooth_speed
+                now = time.perf_counter()
+                elapsed = max(now - start_time, 0.001)
+                time_delta = now - last_time
+
+                # Smooth speed calculation using time window to avoid division spikes on instant unallocated jumps
+                if time_delta >= 0.15:
+                    bytes_delta = max(current_offset - last_bytes, 0)
+                    inst_speed = (bytes_delta / (1024 * 1024)) / time_delta
+                    inst_speed = min(inst_speed, 3500.0) # Hardware bus upper boundary
+                    if smooth_speed == 0.0:
+                        smooth_speed = inst_speed
+                    else:
+                        smooth_speed = 0.7 * smooth_speed + 0.3 * inst_speed
+                    last_time = now
+                    last_bytes = current_offset
+                elif smooth_speed == 0.0:
+                    smooth_speed = (current_offset / (1024 * 1024)) / elapsed
+
+                speed_mb_s = smooth_speed
+
+                eta_sec = ((total_size - current_offset) / (speed_mb_s * 1024 * 1024)) if (speed_mb_s > 0.1 and total_size > current_offset) else 0.0
+                if eta_sec > 86400:
+                    eta_sec = 0.0
+
                 pct = int((current_offset / total_size) * 100) if total_size > 0 else 0
                 pct = min(max(pct, 0), 100)
+
                 self.progress_updated.emit(pct, current_offset, total_size)
+                self.telemetry_updated.emit(pct, current_offset, total_size, speed_mb_s, elapsed, eta_sec)
 
             def cancel_cb() -> bool:
                 return self._is_cancelled

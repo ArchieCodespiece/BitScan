@@ -1,5 +1,6 @@
 """
 Core Carving Engine Loop with Progress Tracking and Cancellation Support
+Integrates C++ Native Carving Core for high-speed scanning with pure Python fallback.
 """
 from dataclasses import dataclass
 import hashlib
@@ -11,6 +12,7 @@ from src.carver.raw_io import RawReader
 from src.carver.signatures import SignatureStore, FileSignature
 from src.carver.validators import ValidatorRegistry, calculate_confidence
 from src.carver.classifier import classify
+from src.carver.native_engine import is_native_available, NativeCarvingEngine
 
 
 @dataclass
@@ -20,6 +22,7 @@ class ScanJob:
     signatures: list[str]  # Target signatures or ["all"]
     sector_size: int = 512
     read_buffer: int = 1024 * 1024  # 1 MB read buffer
+    skip_unallocated: bool = True   # Default True: skips unallocated free space for fast scanning
 
 
 class CarvingEngine:
@@ -36,9 +39,27 @@ class CarvingEngine:
     ) -> Generator[CarvedFile, None, None]:
         """
         Scans media and yields recovered CarvedFile instances.
-        Periodically invokes progress_callback(offset, total_size, count).
-        Checks cancel_check() to allow early interruption.
+        Utilizes compiled C++ native engine if available, with transparent Python fallback.
         """
+        # Attempt ultra-fast native C++ acceleration first
+        if is_native_available():
+            try:
+                native_engine = NativeCarvingEngine(self.sig_store)
+                yield from native_engine.scan(
+                    source_path=job.source_path,
+                    output_dir=job.output_dir,
+                    signatures=job.signatures,
+                    sector_size=job.sector_size,
+                    skip_unallocated=job.skip_unallocated,
+                    progress_callback=progress_callback,
+                    cancel_check=cancel_check,
+                )
+                return
+            except Exception:
+                # In case of native invocation failure, fallback to Python engine
+                pass
+
+        # Python Scanner Implementation (Fallback)
         reader = RawReader(job.source_path, chunk_size=job.read_buffer)
         output_dir = Path(job.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -68,8 +89,12 @@ class CarvingEngine:
                     progress_callback(offset, total_size, files_found_count)
                     last_progress_emit = offset
 
-                # Removed claimed_ranges check to prevent skipping large chunks of the disk
-                # when a file footer is missing. This ensures all files are found.
+                # Fast unallocated/empty space skipping
+                if job.skip_unallocated:
+                    fast_check = reader.read_at(offset, 4096)
+                    if fast_check and (fast_check == b"\x00" * len(fast_check) or fast_check == b"\xff" * len(fast_check)):
+                        offset += len(fast_check)
+                        continue
 
                 # Read sector header check window
                 header_window = reader.read_at(offset, max_header_len)
@@ -85,7 +110,6 @@ class CarvingEngine:
                         reader, offset, sig, output_dir, carve_id
                     )
                     if carved:
-                        # We no longer add to claimed_ranges to allow finding embedded files
                         carve_id += 1
                         files_found_count += 1
                         if progress_callback:
@@ -137,10 +161,13 @@ class CarvingEngine:
         md5_hash = hashlib.md5(candidate_bytes).hexdigest()
         sha256_hash = hashlib.sha256(candidate_bytes).hexdigest()
 
-        # Score (DO NOT persist to disk yet)
+        # Score and write
         confidence = calculate_confidence(val_res, size_reasonable=True)
         out_filename = f"carve_{carve_id:04d}_{sig.name}{sig.extension}"
         out_path = output_dir / out_filename
+
+        with open(out_path, "wb") as f:
+            f.write(candidate_bytes)
 
         return CarvedFile(
             id=carve_id,
@@ -155,9 +182,13 @@ class CarvingEngine:
             output_path=out_path,
         )
 
+
 def extract_file(source_path: str, file_meta: CarvedFile) -> bool:
-    """Extracts a specific file from the raw image and writes it to disk."""
+    """Extracts a specific file from the raw image and writes it to disk if not already present."""
     try:
+        if file_meta.output_path and file_meta.output_path.exists() and file_meta.output_path.stat().st_size > 0:
+            return True
+
         reader = RawReader(source_path, chunk_size=max(file_meta.size, 1024))
         data = reader.read_at(file_meta.source_offset, file_meta.size)
         reader.close()

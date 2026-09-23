@@ -1,4 +1,5 @@
 import sys
+# pyrefly: ignore [missing-import]
 from PyQt6.QtWidgets import QApplication
 from src.ui.main_window import MainWindow
 
