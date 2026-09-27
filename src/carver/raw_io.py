@@ -7,6 +7,40 @@ import os
 import sys
 
 
+def normalize_device_path(path: str) -> str:
+    """
+    Handles cross-platform raw drive and image path formatting.
+    Converts 'F', 'F:', 'F:\\', 'F:/', 'f:' to '\\\\.\\F:' on Windows.
+    Automatically resolves non-elevated physical disk handles to their direct mounted volume.
+    """
+    p = str(path).strip()
+    if sys.platform == "win32":
+        if not p.startswith(r"\\.\\") and not p.startswith(r"\\."):
+            clean = p.rstrip(r"\/")
+            if len(clean) == 1 and clean.isalpha():
+                return rf"\\.\{clean.upper()}:"
+            if len(clean) == 2 and clean[1] == ":":
+                return rf"\\.\{clean.upper()}"
+
+        if p.upper().startswith(r"\\.\PHYSICALDRIVE"):
+            try:
+                import ctypes
+                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                h = kernel32.CreateFileW(p, 0x80000000, 3, None, 3, 0, None)
+                if h != -1 and h != 0xFFFFFFFFFFFFFFFF:
+                    kernel32.CloseHandle(h)
+                else:
+                    if ctypes.get_last_error() == 5: # ERROR_ACCESS_DENIED
+                        from src.utils.device_scanner import list_storage_devices
+                        for dev in list_storage_devices():
+                            if dev.device_path.upper() == p.upper() and dev.mountpoint:
+                                letter = dev.mountpoint.split(",")[0].strip().rstrip(":")
+                                return rf"\\.\{letter.upper()}:"
+            except Exception:
+                pass
+    return p
+
+
 class RawReader:
     """Provides a streaming and random-access reader over raw disks or images."""
 
@@ -34,26 +68,42 @@ class RawReader:
 
     def _normalize_path(self, path: str) -> str:
         """Handles cross-platform raw drive path formatting."""
-        path = str(path).strip()
-        if sys.platform == "win32" and not path.startswith("\\\\.\\"):
-            if len(path) == 2 and path[1] == ":":
-                return rf"\\.\{path}"
-        return path
+        return normalize_device_path(path)
 
     def _get_total_size(self) -> int:
         """Retrieves total byte size for files or physical disks."""
-        # Windows raw block device size fallback via PowerShell
+        # Windows raw block device and volume size detection via Win32 IOCTLs
         if sys.platform == "win32" and self.path.startswith("\\\\.\\"):
             try:
-                import subprocess
-                drive = self.path.replace("\\\\.\\", "")
-                if ":" in drive:
-                    cmd = f'(Get-CimInstance Win32_LogicalDisk -Filter "DeviceID=\'{drive}\'").Size'
-                else:
-                    cmd = f'(Get-CimInstance Win32_DiskDrive -Filter "DeviceID=\'\\\\\\\\.\\\\{drive}\'").Size'
-                res = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True, timeout=2)
-                if res.returncode == 0 and res.stdout.strip():
-                    return int(res.stdout.strip())
+                import ctypes
+                from ctypes import wintypes
+                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                h = kernel32.CreateFileW(
+                    self.path,
+                    0x80000000, # GENERIC_READ
+                    3,          # FILE_SHARE_READ | FILE_SHARE_WRITE
+                    None,
+                    3,          # OPEN_EXISTING
+                    0,
+                    None
+                )
+                if h != -1 and h != 0xFFFFFFFFFFFFFFFF:
+                    try:
+                        # 1. IOCTL_DISK_GET_LENGTH_INFO (0x0007405c) - works on both volumes and physical disks
+                        length_info = wintypes.LARGE_INTEGER()
+                        bytes_ret = wintypes.DWORD()
+                        if kernel32.DeviceIoControl(h, 0x0007405c, None, 0, ctypes.byref(length_info), ctypes.sizeof(length_info), ctypes.byref(bytes_ret), None):
+                            if length_info.value > 0:
+                                return length_info.value
+
+                        # 2. IOCTL_DISK_GET_DRIVE_GEOMETRY_EX (0x000700A0)
+                        buf = (ctypes.c_uint8 * 256)()
+                        if kernel32.DeviceIoControl(h, 0x000700A0, None, 0, buf, len(buf), ctypes.byref(bytes_ret), None):
+                            disk_sz = ctypes.c_int64.from_buffer_copy(bytes(buf)[24:32]).value
+                            if disk_sz > 0:
+                                return disk_sz
+                    finally:
+                        kernel32.CloseHandle(h)
             except Exception:
                 pass
 
@@ -79,6 +129,13 @@ class RawReader:
         return 0
 
     def total_size(self) -> int:
+        return self._size
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    def __len__(self) -> int:
         return self._size
 
     def read_at(self, offset: int, length: int) -> bytes:

@@ -1,6 +1,7 @@
 """
 File & Folder Shredder UI Component
 Features Drive Media Pre-Detection (HDD vs NVMe/SSD), NIST/DoD standards, and an interactive Standards Guide.
+Fully theme-aware (Cyber Dark / Precision Light).
 """
 import os
 import sys
@@ -20,41 +21,56 @@ from src.utils.device_scanner import get_path_media_info, PathMediaInfo
 
 
 class AlgorithmInfoDialog(QDialog):
-    """Interactive Modal Explaining Data Sanitization Standards & Passes."""
     """User-Friendly Modal Explaining Data Sanitization Standards & Passes."""
 
-    def __init__(self, parent=None):
+    def __init__(self, is_dark: bool = True, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Sanitization Standards & Algorithms Guide")
-        self.resize(620, 480)
-        self.setWindowTitle("Sanitization Standards Guide")
-        self.resize(560, 420)
+        self.resize(680, 520)
+        self.is_dark = is_dark
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
 
-        header = QLabel("<h3>🔬 Data Destruction Standards & When to Use Them</h3>")
-        header = QLabel("<h3>🔬 Algorithm & Standards Guide</h3>")
+        header = QLabel("<h3>🔬 Data Destruction Standards & Cryptographic Compliance</h3>")
         layout.addWidget(header)
 
         browser = QTextBrowser()
         browser.setOpenExternalLinks(True)
 
-        content = """
+        if is_dark:
+            body_bg = "#0b0f19"
+            card_bg = "#111827"
+            text_color = "#e2e8f0"
+            meta_color = "#94a3b8"
+            border_color = "#00e5ff"
+            badge_bg = "#0c4a6e"
+            badge_fg = "#38bdf8"
+            warn_bg = "#291b00"
+            warn_border = "#f59e0b"
+            warn_title = "#fbbf24"
+        else:
+            body_bg = "#ffffff"
+            card_bg = "#f8fafc"
+            text_color = "#1e293b"
+            meta_color = "#64748b"
+            border_color = "#1a73e8"
+            badge_bg = "#e8f0fe"
+            badge_fg = "#1a73e8"
+            warn_bg = "#fef7e0"
+            warn_border = "#f59e0b"
+            warn_title = "#b45309"
+
+        content = f"""
         <style>
-            body { font-family: sans-serif; font-size: 13px; line-height: 1.5; color: #202124; }
-            .card { background: #f8f9fa; border-left: 4px solid #1a73e8; padding: 10px 14px; margin-bottom: 14px; border-radius: 0 6px 6px 0; }
-            body { font-family: "Segoe UI", sans-serif; font-size: 13px; line-height: 1.5; color: #202124; }
-            .card { background: #f8f9fa; border-left: 4px solid #1a73e8; padding: 10px 14px; margin-bottom: 12px; border-radius: 0 6px 6px 0; }
-            .title { font-weight: bold; font-size: 14px; color: #1a73e8; margin-bottom: 4px; }
-            .meta { font-size: 12px; color: #5f6368; margin-bottom: 6px; }
-            .meta { font-size: 12px; color: #5f6368; margin-bottom: 4px; }
-            .badge { background: #e8f0fe; color: #1a73e8; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
-            .warn { background: #fef7e0; border-left-color: #f9ab00; }
-            .warn .title { color: #b06000; }
+            body {{ font-family: "Segoe UI", sans-serif; font-size: 13px; line-height: 1.5; color: {text_color}; background-color: {body_bg}; }}
+            .card {{ background: {card_bg}; border-left: 4px solid {border_color}; padding: 12px 16px; margin-bottom: 12px; border-radius: 0 6px 6px 0; }}
+            .title {{ font-weight: bold; font-size: 14px; color: {border_color}; margin-bottom: 4px; }}
+            .meta {{ font-size: 12px; color: {meta_color}; margin-bottom: 6px; }}
+            .badge {{ background: {badge_bg}; color: {badge_fg}; padding: 2px 8px; border-radius: 4px; font-weight: bold; }}
+            .warn {{ background: {warn_bg}; border-left-color: {warn_border}; }}
+            .warn .title {{ color: {warn_title}; }}
         </style>
         """
 
@@ -64,21 +80,17 @@ class AlgorithmInfoDialog(QDialog):
                 <div class="title">{info['title']}</div>
                 <div class="meta"><b>Passes:</b> <span class="badge">{info['passes']}</span> &nbsp;|&nbsp; <b>Pattern:</b> {info['pattern']}</div>
                 <div><b>Recommended Use Case:</b> {info['use_case']}</div>
-                <div><b>Use Case:</b> {info['use_case']}</div>
             </div>
             """
 
         content += """
         <div class="card warn">
-            <div class="title">⚠️ Important: HDD vs. SSD / NVMe Physical Storage Physics</div>
-            <div class="title">💡 Storage Tip (HDD vs. SSD)</div>
+            <div class="title">⚠️ Important: Physical Media Physics (HDD vs. SSD/NVMe)</div>
             <div>
-                <b>Rotational Magnetic HDDs:</b> In-place overwriting physically destroys magnetic domain alignment under read/write heads.<br><br>
-                <b>Solid-State NVMe / SSDs:</b> Modern flash controllers use <i>wear-leveling</i> and <i>Flash Translation Layer (FTL)</i> over-provisioning. 
-                Writing to an existing file creates a new flash block and leaves the old block in unallocated flash until garbage collection. 
-                For absolute sanitization of SSDs, use firmware-level <b>Drive Sanitizer (ATA/NVMe Format)</b> in Tab 3.
-                <b>HDDs:</b> Single-file overwriting physically clears magnetic data.<br>
-                <b>SSDs / NVMe:</b> Flash wear-leveling may retain stale data in unallocated blocks. For total SSD clearing, use full <b>Drive Sanitization</b> (Tab 3).
+                <b>Magnetic HDDs:</b> In-place overwriting physically destroys magnetic domain alignment under read/write heads.<br><br>
+                <b>Solid-State NVMe / SSDs:</b> Flash controllers utilize <i>wear-leveling</i> and <i>Flash Translation Layer (FTL)</i>. 
+                Writing to an existing file allocates a new flash block while leaving the old block in unallocated NAND until TRIM / garbage collection. 
+                For absolute physical sanitization of whole SSDs, use firmware-level <b>Drive Sanitizer (ATA Secure Erase / NVMe Format)</b> in Tab 3.
             </div>
         </div>
         """
@@ -86,11 +98,11 @@ class AlgorithmInfoDialog(QDialog):
         browser.setHtml(content)
         layout.addWidget(browser)
 
-        btn_close = QPushButton("Close Guide")
         btn_close = QPushButton("Got It")
         btn_close.clicked.connect(self.accept)
         btn_close.setFixedWidth(120)
-        btn_close.setFixedWidth(100)
+        btn_close.setFixedHeight(32)
+
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         btn_layout.addWidget(btn_close)
@@ -126,7 +138,7 @@ class ShredWorker(QThread):
             if self._is_cancelled:
                 break
 
-            self.file_status.emit(row_idx, "Overwriting...", "#f57f17")
+            self.file_status.emit(row_idx, "Overwriting...", "#f59e0b")
 
             result = shred_file(
                 file_path,
@@ -138,13 +150,13 @@ class ShredWorker(QThread):
 
             if result.success and result.verified:
                 success_count += 1
-                self.file_status.emit(row_idx, "Destroyed, Verified & Unlinked", "#188038")
+                self.file_status.emit(row_idx, "Destroyed & Verified", "#10b981")
             elif result.success:
                 success_count += 1
-                self.file_status.emit(row_idx, "Destroyed & Unlinked", "#f57f17")
+                self.file_status.emit(row_idx, "Destroyed & Unlinked", "#38bdf8")
             else:
                 fail_count += 1
-                self.file_status.emit(row_idx, "Failed", "#d93025")
+                self.file_status.emit(row_idx, "Failed", "#ef4444")
 
             session.add_summary({
                 "id": i + 1,
@@ -181,6 +193,7 @@ class ShredderTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.worker: ShredWorker | None = None
+        self.is_dark_mode = True
         self._init_ui()
 
     def _init_ui(self):
@@ -188,22 +201,27 @@ class ShredderTab(QWidget):
         main_layout.setSpacing(12)
         main_layout.setContentsMargins(16, 16, 16, 16)
 
-        # 1. Target Selection
-        group = QGroupBox("Target File / Folder Selection for Sanitization")
+        # 1. Target Selection Bar
+        group = QGroupBox("Target Selection for Cryptographic Destruction")
         group_layout = QHBoxLayout()
+        group_layout.setContentsMargins(12, 14, 12, 12)
+        group_layout.setSpacing(10)
 
-        btn_file = QPushButton("📄 Select Files...")
-        btn_file.clicked.connect(self._add_files)
+        self.btn_file = QPushButton("📄 Select Files...")
+        self.btn_file.setFixedHeight(32)
+        self.btn_file.clicked.connect(self._add_files)
 
-        btn_folder = QPushButton("📁 Select Folder...")
-        btn_folder.clicked.connect(self._add_folder)
+        self.btn_folder = QPushButton("📁 Select Folder...")
+        self.btn_folder.setFixedHeight(32)
+        self.btn_folder.clicked.connect(self._add_folder)
 
-        btn_clear = QPushButton("Clear List")
-        btn_clear.clicked.connect(self._clear_list)
+        self.btn_clear = QPushButton("🗑️ Clear List")
+        self.btn_clear.setFixedHeight(32)
+        self.btn_clear.clicked.connect(self._clear_list)
 
-        group_layout.addWidget(btn_file)
-        group_layout.addWidget(btn_folder)
-        group_layout.addWidget(btn_clear)
+        group_layout.addWidget(self.btn_file)
+        group_layout.addWidget(self.btn_folder)
+        group_layout.addWidget(self.btn_clear)
         group_layout.addStretch()
         group.setLayout(group_layout)
         main_layout.addWidget(group)
@@ -211,24 +229,16 @@ class ShredderTab(QWidget):
         # 2. Drive Pre-Detection Banner Card
         self.media_card = QFrame()
         self.media_card.setFrameShape(QFrame.Shape.StyledPanel)
-        self.media_card.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border: 1px solid #dadce0;
-                border-radius: 6px;
-                padding: 6px 12px;
-            }
-        """)
         media_layout = QHBoxLayout(self.media_card)
-        media_layout.setContentsMargins(8, 6, 8, 6)
+        media_layout.setContentsMargins(12, 10, 12, 10)
+        media_layout.setSpacing(12)
 
         self.lbl_media_icon = QLabel("🔍")
-        self.lbl_media_icon.setStyleSheet("font-size: 16px;")
+        self.lbl_media_icon.setStyleSheet("font-size: 20px;")
         self.lbl_media_text = QLabel(
             "<b>Storage Pre-Detection:</b> Add target files to detect physical drive technology (HDD vs. SSD/NVMe)."
         )
         self.lbl_media_text.setWordWrap(True)
-        self.lbl_media_text.setStyleSheet("color: #3c4043; font-size: 12px;")
 
         media_layout.addWidget(self.lbl_media_icon)
         media_layout.addWidget(self.lbl_media_text, 1)
@@ -236,88 +246,45 @@ class ShredderTab(QWidget):
 
         # 3. Files Table
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Target Path", "Size", "Detected Media", "Status"])
+        self.table.setHorizontalHeaderLabels(["Target File / Path", "Size", "Detected Media", "Destruction Status"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
         main_layout.addWidget(self.table)
 
         # 4. Shred Method, Standards Guide Button, & Action
         ctrl_group = QGroupBox("Sanitization Standard & Execution")
         ctrl_layout = QHBoxLayout()
+        ctrl_layout.setContentsMargins(12, 14, 12, 12)
+        ctrl_layout.setSpacing(10)
 
-        ctrl_layout.addWidget(QLabel("Algorithm:"))
-        
+        lbl_algo = QLabel("Algorithm:")
+        lbl_algo.setStyleSheet("font-weight: 600;")
+        ctrl_layout.addWidget(lbl_algo)
+
         self.method_combo = QComboBox()
-        self.method_combo.setMinimumWidth(260)
-        self.method_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #ffffff;
-                color: #202124;
-                border: 1px solid #dadce0;
-                border-radius: 14px;
-                padding: 5px 12px;
-                font-weight: 500;
-                font-size: 13px;
-            }
-            QComboBox:hover {
-                border: 1px solid #1a73e8;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #ffffff;
-                color: #202124;
-                selection-background-color: #e8f0fe;
-                selection-color: #1a73e8;
-                border: 1px solid #dadce0;
-            }
-        """)
+        self.method_combo.setMinimumWidth(320)
+        self.method_combo.setFixedHeight(32)
 
         for method in ShredMethod:
             self.method_combo.addItem(method.value, method)
-        # Default to NIST SP 800-88 Clear (index 0)
         self.method_combo.setCurrentIndex(0)
         ctrl_layout.addWidget(self.method_combo)
 
-        # Interactive "ℹ️ Standards Info" button
-        btn_info = QPushButton("ℹ️ Standards Guide")
-        btn_info.setStyleSheet("color: #1a73e8; font-weight: bold; border: 1px solid #dadce0;")
-        # Small circular (i) info button beside the algorithm combo
-        btn_info = QPushButton("ℹ")
-        btn_info.setFixedSize(28, 28)
-        btn_info.setToolTip("View algorithm details & standards guide")
-        btn_info.setStyleSheet("""
-            QPushButton {
-                border-radius: 14px;
-                background-color: #e8f0fe;
-                color: #1a73e8;
-                font-size: 14px;
-                font-weight: bold;
-                border: 1px solid #c2e7ff;
-                padding: 0px;
-            }
-            QPushButton:hover {
-                background-color: #d2e3fc;
-                border: 1px solid #1a73e8;
-            }
-        """)
-        btn_info.clicked.connect(self._show_standards_info)
-        ctrl_layout.addWidget(btn_info)
+        # Interactive Standards Guide button
+        self.btn_info = QPushButton("ℹ️ Standards Guide")
+        self.btn_info.setFixedHeight(32)
+        self.btn_info.setToolTip("View detailed algorithm patterns, pass counts, and media physics")
+        self.btn_info.clicked.connect(self._show_standards_info)
+        ctrl_layout.addWidget(self.btn_info)
 
         ctrl_layout.addStretch()
 
-        self.btn_shred = QPushButton("⚠️ PERMANENTLY SHRED SELECTED DATA")
-        self.btn_shred.setStyleSheet("""
-            QPushButton {
-                background-color: #d93025; color: white; font-weight: bold; border-radius: 4px; padding: 8px 20px; 
-                background-color: #d93025; color: white; font-weight: bold; border-radius: 16px; padding: 8px 20px; 
-                border: 1px solid #d93025; font-size: 12px;
-            }
-            QPushButton:hover { background-color: #c5221f; }
-            QPushButton:pressed { background-color: #b31412; }
-            QPushButton:disabled { background-color: #f1f3f4; color: #9aa0a6; border: 1px solid #f1f3f4; }
-        """)
+        self.btn_shred = QPushButton("⚠️ PERMANENTLY SHRED DATA")
+        self.btn_shred.setFixedHeight(34)
         self.btn_shred.clicked.connect(self._start_shredding)
         ctrl_layout.addWidget(self.btn_shred)
 
@@ -325,17 +292,66 @@ class ShredderTab(QWidget):
         main_layout.addWidget(ctrl_group)
 
         # 5. Progress Bar & Status
+        status_box = QHBoxLayout()
         self.status_label = QLabel("Status: Waiting for target files.")
-        self.status_label.setStyleSheet("color: #5f6368; font-weight: 500;")
+        self.status_label.setStyleSheet("font-size: 11px;")
+        
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
-        self.progress_bar.setFixedHeight(18)
+        self.progress_bar.setFixedHeight(16)
+        self.progress_bar.setTextVisible(True)
 
-        main_layout.addWidget(self.status_label)
-        main_layout.addWidget(self.progress_bar)
+        status_box.addWidget(self.status_label, 1)
+        status_box.addWidget(self.progress_bar, 2)
+        main_layout.addLayout(status_box)
+
+        # Apply initial theme
+        self.set_theme(True)
+
+    def set_theme(self, is_dark: bool):
+        self.is_dark_mode = is_dark
+
+        if is_dark:
+            self.btn_shred.setStyleSheet("""
+                QPushButton {
+                    background-color: #dc2626; color: white; font-weight: 700; border-radius: 6px; padding: 4px 20px;
+                    border: 1px solid #ef4444; font-size: 12px;
+                }
+                QPushButton:hover { background-color: #ef4444; }
+                QPushButton:pressed { background-color: #b91c1c; }
+                QPushButton:disabled { background-color: #1e293b; color: #475569; border: 1px solid #1e293b; }
+            """)
+            self.btn_info.setStyleSheet("""
+                QPushButton {
+                    background-color: #0c4a6e; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 4px 14px;
+                    border: 1px solid #0284c7; font-size: 12px;
+                }
+                QPushButton:hover { background-color: #075985; border-color: #38bdf8; }
+            """)
+            self.status_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        else:
+            self.btn_shred.setStyleSheet("""
+                QPushButton {
+                    background-color: #d93025; color: white; font-weight: 700; border-radius: 6px; padding: 4px 20px;
+                    border: 1px solid #c5221f; font-size: 12px;
+                }
+                QPushButton:hover { background-color: #c5221f; }
+                QPushButton:pressed { background-color: #b31412; }
+                QPushButton:disabled { background-color: #f1f3f4; color: #9aa0a6; border: 1px solid #dadce0; }
+            """)
+            self.btn_info.setStyleSheet("""
+                QPushButton {
+                    background-color: #e8f0fe; color: #1a73e8; font-weight: 600; border-radius: 6px; padding: 4px 14px;
+                    border: 1px solid #c2e7ff; font-size: 12px;
+                }
+                QPushButton:hover { background-color: #d2e3fc; border-color: #1a73e8; }
+            """)
+            self.status_label.setStyleSheet("color: #475569; font-size: 11px;")
+
+        self._update_media_detection()
 
     def _show_standards_info(self):
-        dlg = AlgorithmInfoDialog(self)
+        dlg = AlgorithmInfoDialog(is_dark=self.is_dark_mode, parent=self)
         dlg.exec()
 
     def _add_files(self):
@@ -359,25 +375,30 @@ class ShredderTab(QWidget):
         path = Path(file_path)
         try:
             size_bytes = path.stat().st_size
-            if size_bytes >= 1024 * 1024:
-                size_str = f"{size_bytes / (1024*1024):.2f} MB"
+            if size_bytes >= 1024 * 1024 * 1024:
+                size_str = f"{size_bytes / (1024**3):.2f} GB"
+            elif size_bytes >= 1024 * 1024:
+                size_str = f"{size_bytes / (1024**2):.2f} MB"
             else:
                 size_str = f"{size_bytes / 1024:.1f} KB"
         except Exception:
             size_str = "Unknown"
 
         media_info = get_path_media_info(file_path)
-        media_badge = "SSD / NVMe" if media_info.is_ssd else "HDD / Loop"
+        media_badge = "NVMe / SSD" if media_info.is_ssd else "Magnetic HDD"
 
         item_path = QTableWidgetItem(file_path)
-        item_path.setData(Qt.ItemDataRole.UserRole, media_info)  # reuse in worker
+        item_path.setData(Qt.ItemDataRole.UserRole, media_info)
         item_size = QTableWidgetItem(size_str)
         item_media = QTableWidgetItem(media_badge)
-        item_status = QTableWidgetItem("Queued")
-        item_status.setForeground(QBrush(QColor("#1a73e8")))
+        item_status = QTableWidgetItem("Ready to Shred")
+
+        cyan = QColor("#00e5ff") if self.is_dark_mode else QColor("#1a73e8")
+        amber = QColor("#fbbf24") if self.is_dark_mode else QColor("#b45309")
+        item_status.setForeground(QBrush(cyan))
 
         if media_info.is_ssd:
-            item_media.setForeground(QBrush(QColor("#b06000")))
+            item_media.setForeground(QBrush(amber))
 
         self.table.setItem(row, 0, item_path)
         self.table.setItem(row, 1, item_size)
@@ -389,14 +410,21 @@ class ShredderTab(QWidget):
         if self.table.rowCount() == 0:
             self.lbl_media_icon.setText("🔍")
             self.lbl_media_text.setText(
-                "<b>Storage Pre-Detection:</b> Add target files to detect physical drive technology (HDD vs. SSD/NVMe)."
+                "<b>Storage Pre-Detection:</b> Add target files or directories to inspect hardware media technology (HDD vs. SSD/NVMe)."
             )
-            self.media_card.setStyleSheet(
-                "QFrame { background-color: #f8f9fa; border: 1px solid #dadce0; border-radius: 6px; padding: 6px 12px; }"
-            )
+            if self.is_dark_mode:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #94a3b8; font-size: 12px;")
+            else:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #475569; font-size: 12px;")
             return
 
-        # Check first queued file
+        # Check queued files
         first_item = self.table.item(0, 0)
         if not first_item:
             return
@@ -411,18 +439,32 @@ class ShredderTab(QWidget):
                 "Single-file overwriting cannot guarantee 100% physical NAND block destruction. "
                 "For high-security sanitization, consider full <b>Drive Sanitization</b> in Tab 3."
             )
-            self.media_card.setStyleSheet(
-                "QFrame { background-color: #fef7e0; border: 1px solid #f9ab00; border-radius: 6px; padding: 6px 12px; }"
-            )
+            if self.is_dark_mode:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #1c1505; border: 1px solid #f59e0b; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #fde68a; font-size: 12px;")
+            else:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #fef7e0; border: 1px solid #f9ab00; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #92400e; font-size: 12px;")
         else:
-            self.lbl_media_icon.setText("✓")
+            self.lbl_media_icon.setText("🛡️")
             self.lbl_media_text.setText(
                 f"<b>Magnetic / Block Storage Detected ({media_info.device_path}):</b> "
                 "In-place sector overwriting will physically destroy magnetic remanence under NIST SP 800-88 / DoD 5220.22-M."
             )
-            self.media_card.setStyleSheet(
-                "QFrame { background-color: #e6f4ea; border: 1px solid #34a853; border-radius: 6px; padding: 6px 12px; }"
-            )
+            if self.is_dark_mode:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #062b1a; border: 1px solid #10b981; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #a7f3d0; font-size: 12px;")
+            else:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #ecfdf5; border: 1px solid #10b981; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #065f46; font-size: 12px;")
 
     def _clear_list(self):
         self.table.setRowCount(0)
@@ -438,26 +480,26 @@ class ShredderTab(QWidget):
 
         method: ShredMethod = self.method_combo.currentData()
 
-        # Check if targets are on SSD to offer a dedicated forensic prompt
         first_item = self.table.item(0, 0)
         first_path = first_item.text() if first_item else ""
         media_info = get_path_media_info(first_path)
 
         warning_text = (
-            f"You are about to PERMANENTLY DESTROY {rows} files using {method.value}.\n\n"
-            "This action CANNOT BE UNDONE. Overwritten data cannot be recovered by forensic carving tools.\n\n"
+            f"You are about to PERMANENTLY DESTROY {rows} files using:\n"
+            f"Standard: {method.value}\n\n"
+            "This action CANNOT BE UNDONE. Overwritten data cannot be recovered even by deep laboratory forensic carvers.\n\n"
         )
         if media_info.is_ssd:
             warning_text += (
-                "NOTE: Files are located on Solid-State (SSD/NVMe) storage. "
-                "Logical sectors will be overwritten, but physical NAND wear-leveling may leave stale flash blocks.\n\n"
+                "⚠️ NOTE: Files reside on Solid-State (SSD/NVMe) storage. "
+                "Logical file clusters will be destroyed, but flash wear-leveling may retain raw blocks until full drive erasure.\n\n"
             )
 
-        warning_text += "Are you absolutely sure you want to proceed?"
+        warning_text += "Are you absolutely certain you want to proceed?"
 
         reply = QMessageBox.critical(
             self,
-            "WARNING: DATA DESTRUCTION",
+            "CRITICAL: CONFIRM DATA DESTRUCTION",
             warning_text,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 
 from src.ui.carver_tab import CarverTab
 from src.ui.shredder_tab import ShredderTab
+from src.ui.eraser_tab import EraserTab
 
 
 class MainWindow(QMainWindow):
@@ -72,11 +73,12 @@ class MainWindow(QMainWindow):
         # Build each module tab
         self.carver_tab = CarverTab()
         self.shredder_tab = ShredderTab()
-        self.eraser_tab = self.build_eraser_tab()
+        self.eraser_tab = EraserTab()
 
         self.tabs.addTab(self.carver_tab, "🔬 Forensic File Carver")
         self.tabs.addTab(self.shredder_tab, "🛡️ File & Folder Shredder")
         self.tabs.addTab(self.eraser_tab, "💾 Drive Sanitizer")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         # Status Bar
         self.status_bar = QStatusBar()
@@ -85,6 +87,14 @@ class MainWindow(QMainWindow):
 
         # Apply Initial Theme (Cyber Dark Mode by default)
         self._apply_theme(self.is_dark_mode)
+
+    def _on_tab_changed(self, index: int):
+        if index == 2 and hasattr(self, 'eraser_tab'):
+            if not (self.eraser_tab.worker and self.eraser_tab.worker.isRunning()):
+                self.eraser_tab.refresh_devices()
+        elif index == 0 and hasattr(self, 'carver_tab'):
+            if not (self.carver_tab.worker and self.carver_tab.worker.isRunning()):
+                self.carver_tab._refresh_devices()
 
     def _toggle_theme(self):
         self.is_dark_mode = not self.is_dark_mode
@@ -471,59 +481,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(stylesheet)
         if hasattr(self, 'carver_tab') and hasattr(self.carver_tab, 'set_theme'):
             self.carver_tab.set_theme(dark)
-
-    # ---------------------------------------------------------
-    # TAB 3: Drive Eraser Visual View
-    # ---------------------------------------------------------
-    def build_eraser_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(12)
-        layout.setContentsMargins(16, 16, 16, 16)
-
-        drive_group = QGroupBox("Physical Storage Device Selection")
-        drive_layout = QHBoxLayout()
-        drive_dropdown = QComboBox()
-        drive_dropdown.addItems([
-            "-- Select Target Storage Device --",
-            "/dev/sdb - Kingston DataTraveler USB (16.0 GB)",
-            "/dev/sdc - SanDisk Ultra MicroSD (32.0 GB)",
-            "/dev/nvme0n1p3 - Unallocated Partition (128.0 GB)"
-        ])
-        drive_layout.addWidget(QLabel("Target Block Device:"))
-        drive_layout.addWidget(drive_dropdown)
-        drive_layout.addStretch()
-        drive_group.setLayout(drive_layout)
-        layout.addWidget(drive_group)
-
-        algo_group = QGroupBox("Drive Sanitization Standard & Compliance")
-        algo_layout = QVBoxLayout()
-        algo_dropdown = QComboBox()
-        algo_dropdown.addItems([
-            "NIST SP 800-88 Rev 1 Clear (Single Pass Zero Overwrite with Verification)",
-            "NIST SP 800-88 Rev 1 Purge (DoD 5220.22-M 3-Pass Overwrite)",
-            "ATA Secure Erase / NVMe Format (Hardware-level Controller Command)",
-            "Cryptographic Erase (CE - Purge Encryption Keys)"
-        ])
-        algo_layout.addWidget(algo_dropdown)
-        
-        cb_verify = QCheckBox("Perform 100% Cryptographic Verification Pass (SHA-256 Entropy Audit)")
-        cb_verify.setChecked(True)
-        algo_layout.addWidget(cb_verify)
-
-        cb_cert = QCheckBox("Generate Tamper-Resistant Erasure Certificate (PDF & Signed JSON)")
-        cb_cert.setChecked(True)
-        algo_layout.addWidget(cb_cert)
-
-        algo_group.setLayout(algo_layout)
-        layout.addWidget(algo_group)
-
-        progress = QProgressBar()
-        progress.setValue(0)
-        btn_erase = QPushButton("🛑 Start Full Drive Sanitization")
-        btn_erase.setFixedHeight(38)
-        btn_erase.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; font-size: 13px;")
-
-        layout.addWidget(progress)
-        layout.addWidget(btn_erase)
-        return tab
+        if hasattr(self, 'shredder_tab') and hasattr(self.shredder_tab, 'set_theme'):
+            self.shredder_tab.set_theme(dark)
+        if hasattr(self, 'eraser_tab') and hasattr(self.eraser_tab, 'set_theme'):
+            self.eraser_tab.set_theme(dark)

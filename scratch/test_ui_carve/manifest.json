@@ -1,0 +1,37 @@
+{
+  "forensic_tool": "BitScan - Forensic Data Sanitization & Carving Suite",
+  "version": "1.0.0",
+  "scan_timestamp": "2026-09-27T10:08:19.343411",
+  "source_media": "\\\\.\\F:",
+  "total_recovered_files": 2,
+  "files": [
+    {
+      "id": 1,
+      "filename": "carve_0001_pdf.pdf",
+      "file_type": "pdf",
+      "extension": ".pdf",
+      "category": "document",
+      "source_offset_dec": 184320,
+      "source_offset_hex": "0x0002D000",
+      "size_bytes": 1373917,
+      "confidence_score": 100.0,
+      "md5": "f0899d0bddbfb6a19da00bf2e478134c",
+      "sha256": "e18ed9481b344a9008409b4e9d63ae8f273527ea0852949d3d2e4022ced7b32b",
+      "timestamp": "2026-09-27T10:08:14.625943"
+    },
+    {
+      "id": 2,
+      "filename": "carve_0002_pdf.pdf",
+      "file_type": "pdf",
+      "extension": ".pdf",
+      "category": "document",
+      "source_offset_dec": 1560576,
+      "source_offset_hex": "0x0017D000",
+      "size_bytes": 653243,
+      "confidence_score": 100.0,
+      "md5": "aac308586050cebdbe887137e1fff910",
+      "sha256": "e8f41e8c0ee5c43ba5d3f1243ebf160bef443a1c14e8c8414f8e9ae01ad8dcb9",
+      "timestamp": "2026-09-27T10:08:19.332299"
+    }
+  ]
+}

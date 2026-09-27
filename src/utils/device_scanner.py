@@ -1,8 +1,7 @@
 """
 Storage Device & Loop Drive Discovery Helper
-Safely discovers connected block devices, loop devices, and mounted media using lsblk.
-Safely discovers connected block devices, loop devices, and mounted media using lsblk/PowerShell.
-Provides drive media pre-detection (HDD vs SSD/NVMe) for forensic sanitization.
+Safely discovers connected physical disks, block devices, USB drives, loop devices, and mounted media using PowerShell/lsblk.
+Provides drive media pre-detection (HDD vs SSD/NVMe) for forensic sanitization and raw carving.
 """
 import json
 import os
@@ -10,19 +9,21 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import List
 from typing import List, Optional
 
 
 @dataclass
 class StorageDevice:
-    name: str              # e.g. "loop27", "sdb", "nvme0n1"
-    device_path: str       # e.g. "/dev/loop27"
-    size_str: str          # e.g. "200M", "16G"
-    device_type: str       # "loop", "disk", "part"
-    mountpoint: str | None # e.g. "/media/test_usb"
-    model: str | None      # e.g. "SanDisk Ultra"
-    is_system_drive: bool  # True if hosting root '/' or '/boot'
+    name: str              # e.g. "\\.\PhysicalDrive1", "loop27", "sdb", "nvme0n1"
+    device_path: str       # e.g. "\\.\PhysicalDrive1", "\\.\E:", "/dev/sdb"
+    size_str: str          # e.g. "28.9 GB", "1.34 GB", "200M"
+    device_type: str       # "physical_disk", "usb", "loop", "volume", "disk", "part"
+    mountpoint: str | None # e.g. "E:", "/media/test_usb"
+    model: str | None      # e.g. "SanDisk Ultra USB Device"
+    is_system_drive: bool  # True if hosting root '/' or 'C:'
+    size_bytes: int = 0
+    is_physical: bool = False
+    bus_type: str = ""
 
 
 @dataclass
@@ -207,52 +208,114 @@ def list_storage_devices() -> List[StorageDevice]:
 
     elif sys.platform == "win32":
         try:
-            # Use PowerShell to get logical drives as JSON
+            # Unified discovery: Partitions + Physical Disks + Logical Volumes in a single PowerShell invocation
             ps_cmd = (
-                "Get-CimInstance Win32_LogicalDisk | "
-                "Select-Object DeviceID, VolumeName, Size, DriveType | "
-                "ConvertTo-Json -Compress"
+                "$p = Get-Partition | Select-Object DiskNumber, DriveLetter, Size, Type | ConvertTo-Json -Compress; "
+                "$d = Get-CimInstance Win32_DiskDrive | Select-Object DeviceID, Model, Size, MediaType, InterfaceType, Partitions | ConvertTo-Json -Compress; "
+                "$v = Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, VolumeName, Size, DriveType | ConvertTo-Json -Compress; "
+                "Write-Host '===PARTS==='; Write-Host $p; "
+                "Write-Host '===DISKS==='; Write-Host $d; "
+                "Write-Host '===VOLS==='; Write-Host $v"
             )
             res = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", ps_cmd],
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=7,
             )
-            if res.returncode == 0 and res.stdout.strip():
-                data = json.loads(res.stdout)
-                # If only one drive exists, ConvertTo-Json returns a dict instead of a list
-                if isinstance(data, dict):
-                    data = [data]
-                    
-                for disk in data:
-                    device_id = disk.get("DeviceID", "")  # e.g., "C:"
-                    if not device_id:
+            out = res.stdout
+            if "===PARTS===" in out and "===DISKS===" in out:
+                seg1 = out.split("===PARTS===")[1]
+                parts_raw, rest = seg1.split("===DISKS===")
+                disks_raw, vols_raw = rest.split("===VOLS===")
+
+                def _safe_json(s: str):
+                    s = s.strip()
+                    if not s:
+                        return []
+                    try:
+                        val = json.loads(s)
+                        return [val] if isinstance(val, dict) else val
+                    except Exception:
+                        return []
+
+                partitions = _safe_json(parts_raw)
+                disks = _safe_json(disks_raw)
+                volumes = _safe_json(vols_raw)
+
+                # Map disk numbers to mounted drive letters
+                disk_map = {}
+                for p in partitions:
+                    dnum = p.get("DiskNumber")
+                    letter = p.get("DriveLetter")
+                    if dnum is not None and letter:
+                        disk_map.setdefault(dnum, []).append(f"{letter}:")
+
+                # 1. Enumerate Physical Disks first (Full hardware raw storage - Forensic Carver Priority)
+                for d in disks:
+                    dev_id = d.get("DeviceID", "")  # e.g., "\\.\PHYSICALDRIVE1"
+                    if not dev_id:
                         continue
-                    
-                    vol_name = disk.get("VolumeName") or "Local Disk"
-                    size_bytes = disk.get("Size")
-                    if size_bytes:
-                        # Convert to GB or MB
-                        gb = size_bytes / (1024**3)
-                        size_str = f"{gb:.1f}G" if gb >= 1 else f"{size_bytes / (1024**2):.1f}M"
-                    else:
-                        size_str = "Unknown"
-                        
-                    drive_type = disk.get("DriveType")
-                    dev_type = "usb" if drive_type == 2 else "disk"
-                    is_sys = (device_id.upper() == "C:")
-                    
-                    dev = StorageDevice(
-                        name=f"{device_id} ({vol_name})",
-                        device_path=rf"\\.\{device_id}",  # Raw device path for Windows (e.g., \\.\F:)
-                        size_str=size_str,
-                        device_type=dev_type,
-                        mountpoint=device_id,
-                        model=vol_name,
-                        is_system_drive=is_sys,
+                    model = d.get("Model") or "Physical Storage Device"
+                    size_bytes = d.get("Size") or 0
+                    itype = str(d.get("InterfaceType", "")).upper()
+                    mtype = str(d.get("MediaType", "")).upper()
+
+                    nums = re.findall(r"\d+", dev_id)
+                    dnum = int(nums[0]) if nums else -1
+                    mounted_letters = disk_map.get(dnum, [])
+                    m_label = f" [Mounted: {', '.join(mounted_letters)}]" if mounted_letters else " [Unallocated / Raw]"
+                    is_sys = ("C:" in mounted_letters) or (dnum == 0)
+                    is_usb = (itype == "USB") or ("REMOVABLE" in mtype) or ("EXTERNAL" in mtype)
+
+                    gb = size_bytes / (1024**3)
+                    size_str = f"{gb:.2f} GB" if gb >= 1 else f"{size_bytes / (1024**2):.1f} MB"
+
+                    display_name = f"{dev_id} - {model} ({size_str}){m_label}"
+                    devices.append(
+                        StorageDevice(
+                            name=display_name,
+                            device_path=dev_id,
+                            size_str=size_str,
+                            device_type="usb" if is_usb else "physical_disk",
+                            mountpoint=", ".join(mounted_letters) if mounted_letters else None,
+                            model=model,
+                            is_system_drive=is_sys,
+                            size_bytes=size_bytes,
+                            is_physical=True,
+                            bus_type=itype,
+                        )
                     )
-                    devices.append(dev)
+
+                # 2. Enumerate Logical Volumes (Formatted Partitions)
+                for v in volumes:
+                    dev_id = v.get("DeviceID", "")  # e.g., "C:" or "E:"
+                    if not dev_id:
+                        continue
+                    vol_name = v.get("VolumeName") or "Local Volume"
+                    size_bytes = v.get("Size") or 0
+                    drive_type = v.get("DriveType")  # 2: Removable, 3: Fixed
+
+                    gb = size_bytes / (1024**3)
+                    size_str = f"{gb:.2f} GB" if gb >= 1 else f"{size_bytes / (1024**2):.1f} MB"
+                    is_sys = (dev_id.upper() == "C:")
+                    is_usb = (drive_type == 2)
+
+                    display_name = f"{dev_id} ({vol_name}) - {size_str} [Volume Partition]"
+                    devices.append(
+                        StorageDevice(
+                            name=display_name,
+                            device_path=rf"\\.\{dev_id}",
+                            size_str=size_str,
+                            device_type="usb" if is_usb else "volume",
+                            mountpoint=dev_id,
+                            model=vol_name,
+                            is_system_drive=is_sys,
+                            size_bytes=size_bytes,
+                            is_physical=False,
+                            bus_type="USB" if is_usb else "LogicalVolume",
+                        )
+                    )
         except Exception:
             pass
 
