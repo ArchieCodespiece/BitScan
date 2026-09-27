@@ -301,6 +301,32 @@ class ShredderTab(QWidget):
         status_box.addWidget(self.progress_bar, 2)
         main_layout.addLayout(status_box)
 
+        # 6. Audit & Certificate Action Footer
+        action_layout = QHBoxLayout()
+        self.btn_open_audit = QPushButton("📂 Open Audit Folder")
+        self.btn_open_audit.setEnabled(False)
+        self.btn_open_audit.clicked.connect(self._open_audit_folder)
+
+        self.btn_view_report = QPushButton("📊 View Certificate of Sanitization (HTML)")
+        self.btn_view_report.setEnabled(False)
+        self.btn_view_report.clicked.connect(self._open_report)
+
+        self.btn_view_manifest = QPushButton("📋 View Manifest (JSON)")
+        self.btn_view_manifest.setEnabled(False)
+        self.btn_view_manifest.clicked.connect(self._open_manifest)
+
+        self.btn_verify_chain = QPushButton("🔐 Verify Cryptographic Chain")
+        self.btn_verify_chain.setEnabled(False)
+        self.btn_verify_chain.clicked.connect(self._verify_chain)
+
+        action_layout.addWidget(self.btn_open_audit)
+        action_layout.addWidget(self.btn_view_report)
+        action_layout.addWidget(self.btn_view_manifest)
+        action_layout.addWidget(self.btn_verify_chain)
+        action_layout.addStretch()
+
+        main_layout.addLayout(action_layout)
+
         # Apply initial theme
         self.set_theme(True)
 
@@ -345,32 +371,6 @@ class ShredderTab(QWidget):
             self.status_label.setStyleSheet("color: #475569; font-size: 11px;")
 
         self._update_media_detection()
-
-        # 6. Audit & Certificate Action Footer
-        action_layout = QHBoxLayout()
-        self.btn_open_audit = QPushButton("📂 Open Audit Folder")
-        self.btn_open_audit.setEnabled(False)
-        self.btn_open_audit.clicked.connect(self._open_audit_folder)
-
-        self.btn_view_report = QPushButton("📊 View Certificate of Sanitization (HTML)")
-        self.btn_view_report.setEnabled(False)
-        self.btn_view_report.clicked.connect(self._open_report)
-
-        self.btn_view_manifest = QPushButton("📋 View Manifest (JSON)")
-        self.btn_view_manifest.setEnabled(False)
-        self.btn_view_manifest.clicked.connect(self._open_manifest)
-
-        self.btn_verify_chain = QPushButton("🔐 Verify Cryptographic Chain")
-        self.btn_verify_chain.setEnabled(False)
-        self.btn_verify_chain.clicked.connect(self._verify_chain)
-
-        action_layout.addWidget(self.btn_open_audit)
-        action_layout.addWidget(self.btn_view_report)
-        action_layout.addWidget(self.btn_view_manifest)
-        action_layout.addWidget(self.btn_verify_chain)
-        action_layout.addStretch()
-
-        main_layout.addLayout(action_layout)
 
     def _show_standards_info(self):
         dlg = AlgorithmInfoDialog(is_dark=self.is_dark_mode, parent=self)
