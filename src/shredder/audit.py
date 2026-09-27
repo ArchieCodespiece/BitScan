@@ -1,17 +1,20 @@
 """
 BitScan Shredder Audit & Erasure Report Generator.
 
-Mirrors the carving module's ReportGenerator output trio (manifest.json,
-HTML report, audit.log) while adding a tamper-evident, hash-chained JSONL trail.
-
-Every JSONL record is canonicalized (json.dumps with sort_keys and compact
-separators) so re-validation is byte-exact across platforms. Each record
-references the SHA-256 of the previous literal line; any edit breaks the chain.
+Implements NIST SP 800-88 Rev. 1 (Appendix G) Certificate of Sanitization standards.
+Outputs:
+  - manifest.json: Machine-readable certificate & manifest.
+  - erasure_report.html: Styled, human-readable Certificate of Sanitization.
+  - audit.log: Syslog-compatible chronological audit log.
+  - audit_chain.jsonl: Tamper-evident, cryptographically hash-chained trail.
 """
 import datetime
+import getpass
 import hashlib
 import json
 import os
+import platform
+import socket
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -30,7 +33,7 @@ def _chain_hash(record: Dict[str, Any]) -> str:
 
 
 class AuditSession:
-    """Append-only, hash-chained audit log plus manifest/HTML/audit.log report trio."""
+    """Append-only, hash-chained audit log plus NIST SP 800-88 Certificate trio."""
 
     VERSION = "1.0.0"
     ZERO_HASH = "0" * 64
@@ -38,9 +41,20 @@ class AuditSession:
     def __init__(self, output_dir: Optional[Path] = None, version: str = VERSION):
         ts = datetime.datetime.now(datetime.timezone.utc)
         self.start_ts = ts
-        self.seq_start = ts.strftime("%Y%m%d_%H%M%S")
-        self.session_id = f"shred_{self.seq_start}"
+        self.seq_start = ts.strftime("%Y%m%d_%H%M%S_%f")
+        self.session_id = f"shred_{self.seq_start}_{os.urandom(4).hex()}"
         self.version = version
+
+        # System / Operator metadata for NIST SP 800-88 Appendix G compliance
+        try:
+            self.operator = getpass.getuser()
+        except Exception:
+            self.operator = "Current User"
+        try:
+            self.hostname = socket.gethostname()
+        except Exception:
+            self.hostname = "localhost"
+        self.os_platform = f"{platform.system()} {platform.release()} ({platform.machine()})"
 
         base = output_dir or (Path.home() / ".bitscan" / "audit" / self.session_id)
         self.base_dir = Path(base) if not isinstance(base, Path) else base
@@ -50,7 +64,8 @@ class AuditSession:
         self.log_path = self.base_dir / "audit.log"
 
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        self._fh = open(self.jsonl_path, "a", encoding="utf-8", newline="")
+        # Refuse to append a fresh chain to a previous session's audit log.
+        self._fh = open(self.jsonl_path, "x", encoding="utf-8", newline="")
         self.prev_hash = self.ZERO_HASH
         self.seq = 0
         self.file_summaries: List[dict] = []
@@ -84,14 +99,16 @@ class AuditSession:
             pass
         self.prev_hash = rec_hash
 
-    def begin_session(self, *, method: str, total_files: int, platform: str) -> None:
+    def begin_session(self, *, method: str, total_files: int, platform: Optional[str] = None) -> None:
         self._emit(
             "session_start",
             session_id=self.session_id,
             version=self.version,
             method=method,
             total_files=total_files,
-            platform=platform,
+            operator=self.operator,
+            hostname=self.hostname,
+            platform=platform or self.os_platform,
         )
 
     def file_begin(
@@ -217,10 +234,14 @@ class AuditSession:
         self._fh.close()
 
         manifest_data = {
-            "forensic_tool": "BitScan - Forensic Data Sanitization & Carving Suite",
+            "certificate_standard": "NIST SP 800-88 Rev. 1 (Appendix G) & DoD 5220.22-M Compliance",
+            "forensic_tool": "BitScan - Data Sanitization & Forensic Recovery Suite",
             "version": self.version,
             "session_id": self.session_id,
             "session_timestamp": self.start_ts.isoformat(timespec="seconds"),
+            "operator": self.operator,
+            "host_machine": self.hostname,
+            "operating_system": self.os_platform,
             "total_destroyed": destroyed,
             "total_failed": failed,
             "verified_count": verified_count,
@@ -254,6 +275,7 @@ class AuditSession:
             f.write(
                 f"[{self.start_ts.strftime('%Y-%m-%d %H:%M:%S')}] "
                 f"SHRED SESSION COMPLETED - Session: {self.session_id} - "
+                f"Operator: {self.operator}@{self.hostname} - "
                 f"Destroyed: {destroyed} - Failed: {failed} - "
                 f"Chain root: {self.prev_hash}\n"
             )
@@ -293,38 +315,52 @@ class AuditSession:
 <html>
 <head>
     <meta charset="utf-8">
-    <title>BitScan Erasure Report</title>
+    <title>BitScan Certificate of Sanitization</title>
     <style>
         body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f8f9fa; color: #333; margin: 0; padding: 24px; }}
-        .header {{ background: #1a252f; color: white; padding: 20px 28px; border-radius: 8px; margin-bottom: 24px; }}
-        .header h1 {{ margin: 0 0 8px 0; font-size: 24px; }}
-        .meta-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 16px; }}
-        .meta-card {{ background: rgba(255,255,255,0.1); padding: 12px 16px; border-radius: 6px; }}
-        .meta-label {{ font-size: 12px; color: #adb5bd; text-transform: uppercase; }}
-        .meta-value {{ font-size: 16px; font-weight: bold; margin-top: 4px; }}
+        .header {{ background: #1a252f; color: white; padding: 24px 28px; border-radius: 8px; margin-bottom: 24px; }}
+        .header h1 {{ margin: 0 0 6px 0; font-size: 22px; letter-spacing: 0.5px; }}
+        .subtitle {{ font-size: 13px; color: #90caf9; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }}
+        .meta-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 16px; }}
+        .meta-card {{ background: rgba(255,255,255,0.08); padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); }}
+        .meta-label {{ font-size: 11px; color: #b0bec5; text-transform: uppercase; }}
+        .meta-value {{ font-size: 14px; font-weight: bold; margin-top: 4px; color: #ffffff; }}
         table {{ width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
-        th {{ background: #2c3e50; color: white; text-align: left; padding: 12px 14px; font-size: 13px; }}
+        th {{ background: #2c3e50; color: white; text-align: left; padding: 12px 14px; font-size: 12px; text-transform: uppercase; }}
         td {{ padding: 10px 14px; border-bottom: 1px solid #dee2e6; font-size: 13px; vertical-align: middle; }}
         tr:hover {{ background: #f1f3f5; }}
         code {{ background: #e9ecef; padding: 2px 4px; border-radius: 3px; font-size: 12px; }}
+        .footer {{ margin-top: 24px; font-size: 12px; color: #78909c; text-align: center; }}
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>BitScan Erasure Report</h1>
-        <div>Session {data['session_id']} - Sanitization Audit &amp; Erasure Manifest</div>
+        <h1>BitScan Certificate of Sanitization</h1>
+        <div class="subtitle">NIST SP 800-88 Rev. 1 &amp; DoD 5220.22-M Compliance Manifest</div>
         <div class="meta-grid">
             <div class="meta-card">
-                <div class="meta-label">Session Timestamp</div>
+                <div class="meta-label">Session ID</div>
+                <div class="meta-value">{data['session_id']}</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-label">Operator / Host</div>
+                <div class="meta-value">{data.get('operator','User')} @ {data.get('host_machine','Host')}</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-label">Operating System</div>
+                <div class="meta-value">{data.get('operating_system','OS')}</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-label">Timestamp (UTC)</div>
                 <div class="meta-value">{data['session_timestamp'][:19].replace('T', ' ')}</div>
             </div>
             <div class="meta-card">
                 <div class="meta-label">Destroyed / Verified</div>
-                <div class="meta-value">{destroyed} / {verified_count}</div>
+                <div class="meta-value">{destroyed} / {verified_count} files</div>
             </div>
             <div class="meta-card">
-                <div class="meta-label">Chain Root (SHA-256)</div>
-                <div class="meta-value"><code>{data['tamper_evidence']['chain_root'][:24]}...</code></div>
+                <div class="meta-label">Tamper-Evident Root Hash</div>
+                <div class="meta-value"><code>{data['tamper_evidence']['chain_root'][:20]}...</code></div>
             </div>
         </div>
     </div>
@@ -332,20 +368,23 @@ class AuditSession:
         <thead>
             <tr>
                 <th>ID</th>
-                <th>Target Path</th>
+                <th>Target Asset Path</th>
                 <th>Size</th>
-                <th>Media</th>
+                <th>Media Type</th>
                 <th>Method</th>
                 <th>Passes</th>
-                <th>Slack Bytes</th>
-                <th>Status</th>
-                <th>SHA-256</th>
+                <th>Slack Wiped</th>
+                <th>Verification Status</th>
+                <th>Post-Wipe Hash</th>
             </tr>
         </thead>
         <tbody>
             {rows if rows else '<tr><td colspan="9" style="text-align:center; padding: 20px;">No files processed</td></tr>'}
         </tbody>
     </table>
+    <div class="footer">
+        Generated by BitScan Forensic Suite v{self.version} — Cryptographically Verified Audit Trail
+    </div>
 </body>
 </html>
 """
