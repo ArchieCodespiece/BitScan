@@ -1,6 +1,5 @@
 #include "filesystem_bitmap.h"
 #include <winioctl.h>
-#include <iostream>
 
 namespace CarverNative {
 
@@ -147,6 +146,46 @@ int64_t FilesystemBitmap::get_next_allocated_offset(int64_t current_offset, int6
 
         if ((byte_val & (1 << bit_idx)) != 0) {
             // Found allocated cluster!
+            return cluster * m_cluster_size;
+        }
+
+        cluster++;
+    }
+
+    return total_size > 0 ? total_size : (cluster * m_cluster_size);
+}
+
+int64_t FilesystemBitmap::get_next_unallocated_offset(int64_t current_offset, int64_t total_size) const {
+    if (!m_has_bitmap || m_cluster_size == 0) {
+        return current_offset;
+    }
+
+    int64_t cluster = current_offset / m_cluster_size;
+    int64_t max_cluster = total_size > 0 ? (total_size / m_cluster_size) : m_total_clusters;
+
+    while (cluster < max_cluster) {
+        int64_t rel_cluster = cluster - m_starting_lcn;
+        if (rel_cluster < 0) {
+            cluster = m_starting_lcn;
+            continue;
+        }
+
+        size_t byte_idx = static_cast<size_t>(rel_cluster / 8);
+        int bit_idx = static_cast<int>(rel_cluster % 8);
+
+        if (byte_idx >= m_bitmap_data.size()) {
+            return cluster * m_cluster_size;
+        }
+
+        uint8_t byte_val = m_bitmap_data[byte_idx];
+        if (byte_val == 0xFF && bit_idx == 0) {
+            // Whole byte of 8 clusters is allocated (e.g. 32 KB active file), skip rapidly!
+            cluster += 8;
+            continue;
+        }
+
+        if ((byte_val & (1 << bit_idx)) == 0) {
+            // Found unallocated/deleted cluster!
             return cluster * m_cluster_size;
         }
 

@@ -22,6 +22,9 @@ public:
     // Fast-forwards to the next allocated byte offset if currently in unallocated space
     int64_t get_next_allocated_offset(int64_t current_offset, int64_t total_size) const;
 
+    // Fast-forwards to the next unallocated/free byte offset if currently in allocated space (for deleted file carving)
+    int64_t get_next_unallocated_offset(int64_t current_offset, int64_t total_size) const;
+
     // High-speed 64-bit word check: returns true if block contains only 0x00 or only 0xFF
     static bool is_empty_or_unallocated_block(const uint8_t* buffer, size_t length);
 

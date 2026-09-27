@@ -31,3 +31,9 @@ class CarvedFile:
     output_path: Path | None = None  # Destination path of saved file
     timestamp: datetime.datetime = field(default_factory=datetime.datetime.now)
     fragments: list[tuple[int, int]] = field(default_factory=list)
+
+    @property
+    def file_name(self) -> str:
+        if self.output_path:
+            return self.output_path.name
+        return f"carve_{self.id:04d}_{self.file_type}{self.extension}"

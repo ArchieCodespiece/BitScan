@@ -4,6 +4,7 @@ Pure Python structural checks for common forensic file types with optional PIL f
 """
 import io
 import struct
+import zipfile
 from dataclasses import dataclass
 from typing import Protocol, Optional
 
@@ -95,6 +96,61 @@ class PNGValidator:
         )
 
 
+def find_zip_boundary(data: bytes) -> tuple[bool, int]:
+    """Finds exact end of ZIP archive including complete 22-byte EOCD record and comment."""
+    if len(data) < 22:
+        return False, len(data)
+
+    pos = len(data) - 22
+    while pos >= 0:
+        idx = data.rfind(b"PK\x05\x06", 0, pos + 4)
+        if idx == -1:
+            break
+
+        if idx + 22 <= len(data):
+            try:
+                disk_no, cd_disk, disk_entries, total_entries, cd_size, cd_offset, comment_len = struct.unpack(
+                    "<HHHHIIH", data[idx + 4 : idx + 22]
+                )
+                if disk_no == 0 and cd_disk == 0 and (cd_offset + cd_size <= idx):
+                    if total_entries > 0:
+                        if cd_offset + 4 <= len(data) and data[cd_offset : cd_offset + 4] == b"PK\x01\x02":
+                            exact_len = min(idx + 22 + comment_len, len(data))
+                            return True, exact_len
+                    elif total_entries == 0 and cd_size == 0:
+                        exact_len = min(idx + 22 + comment_len, len(data))
+                        return True, exact_len
+            except Exception:
+                pass
+        pos = idx - 1
+
+    return False, len(data)
+
+
+def find_pdf_boundary(data: bytes) -> tuple[bool, int]:
+    """Finds the last valid %%EOF marker in candidate PDF bytes, preserving trailing newlines."""
+    if len(data) < 8 or not (data.startswith(b"%PDF-") or data.startswith(b"%PDF")):
+        return False, len(data)
+
+    pos = len(data)
+    while pos >= 5:
+        idx = data.rfind(b"%%EOF", 0, pos)
+        if idx == -1:
+            break
+
+        check_start = max(0, idx - 2048)
+        preceding = data[check_start:idx]
+        if any(marker in preceding for marker in (b"startxref", b"xref", b"trailer", b"endobj")):
+            end_pos = idx + 5
+            while end_pos < len(data) and data[end_pos : end_pos + 1] in (b"\r", b"\n", b" ", b"\t"):
+                end_pos += 1
+            return True, end_pos
+
+        pos = idx
+
+    return False, len(data)
+
+
 class PDFValidator:
     """Validates PDF format: %PDF- header, %%EOF footer, and xref/trailer."""
 
@@ -102,18 +158,19 @@ class PDFValidator:
         if len(data) < 8:
             return ValidationResult(False, False, False, False, "Too short for PDF")
 
-        header_ok = data.startswith(b"%PDF-")
-        footer_ok = (b"%%EOF" in data[-1024:]) if footer_present else False
+        header_ok = data.startswith(b"%PDF-") or data.startswith(b"%PDF")
+        tail = data[-2048:] if len(data) >= 2048 else data
+        footer_ok = footer_present or (b"%%EOF" in tail)
         structure_ok = False
         details = "PDF header detected"
 
         if header_ok:
-            if b"/Root" in data or b"xref" in data or b"startxref" in data:
+            if b"/Root" in data or b"xref" in data or b"startxref" in data or b"/Pages" in data:
                 structure_ok = True
-                details = "PDF structural markers (Root/xref/startxref) verified"
+                details = "PDF structural markers (/Root, /Pages, xref, startxref) verified"
 
         return ValidationResult(
-            is_valid=header_ok and (structure_ok or footer_ok or len(data) > 256),
+            is_valid=header_ok and (structure_ok or footer_ok),
             header_ok=header_ok,
             footer_ok=footer_ok,
             structure_ok=structure_ok,
@@ -152,21 +209,34 @@ class ZIPValidator:
     """Validates ZIP / DOCX / OpenXML format."""
 
     def validate(self, data: bytes, footer_present: bool) -> ValidationResult:
-        if len(data) < 30:
+        if len(data) < 22:
             return ValidationResult(False, False, False, False, "Too short for ZIP")
 
         header_ok = data.startswith(b"PK\x03\x04")
-        footer_ok = (b"PK\x05\x06" in data[-1024:]) if footer_present else False
-        structure_ok = footer_ok
-        details = "ZIP / Archive signature verified"
+        if not header_ok:
+            return ValidationResult(False, False, False, False, "Missing PK\\x03\\x04 header")
 
-        return ValidationResult(
-            is_valid=header_ok,
-            header_ok=header_ok,
-            footer_ok=footer_ok,
-            structure_ok=structure_ok,
-            details=details,
-        )
+        # Full structural verification with zipfile
+        try:
+            with zipfile.ZipFile(io.BytesIO(data), "r") as zf:
+                zf.testzip()
+            return ValidationResult(
+                is_valid=True,
+                header_ok=True,
+                footer_ok=True,
+                structure_ok=True,
+                details="Verified complete ZIP archive with intact EOCD and valid CRC32 table",
+            )
+        except Exception:
+            # Fallback check if EOCD signature is present
+            found, sz = find_zip_boundary(data)
+            return ValidationResult(
+                is_valid=found,
+                header_ok=True,
+                footer_ok=found or footer_present,
+                structure_ok=found,
+                details="ZIP archive verified via EOCD directory parser" if found else "ZIP archive corrupted or truncated",
+            )
 
 
 class BMPValidator:

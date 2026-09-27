@@ -19,6 +19,10 @@ public:
     static ValidationResult validate(const std::string& type, const uint8_t* data, size_t length, bool footer_present);
     static double calculate_confidence(const ValidationResult& res, bool size_reasonable = true, bool is_contiguous = true);
 
+    // Format-specific exact boundary locators
+    static bool find_zip_boundary(const uint8_t* data, size_t length, size_t& out_size);
+    static bool find_pdf_boundary(const uint8_t* data, size_t length, size_t& out_size);
+
 private:
     static ValidationResult validate_jpeg(const uint8_t* data, size_t length, bool footer_present);
     static ValidationResult validate_png(const uint8_t* data, size_t length, bool footer_present);

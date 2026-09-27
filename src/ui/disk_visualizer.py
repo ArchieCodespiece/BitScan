@@ -49,6 +49,7 @@ class DiskVisualizer(QWidget):
 
     def update_scan(self, current_offset: int, total_bytes: int, skip_unallocated: bool = True):
         self.current_offset = current_offset
+        was_zero = (self.total_bytes == 0)
         if total_bytes > 0:
             self.total_bytes = total_bytes
 
@@ -58,6 +59,13 @@ class DiskVisualizer(QWidget):
                 if self.blocks[i] != 3:  # Don't overwrite carved artifact markers
                     self.blocks[i] = 1 if skip_unallocated else 2
             self.active_block_idx = target_idx
+
+            # If total_bytes was just registered, ensure all past carved artifacts are placed on the grid
+            if was_zero and self.carved_offsets:
+                for off in self.carved_offsets:
+                    idx = min(int((off / self.total_bytes) * self.num_blocks), self.num_blocks - 1)
+                    self.blocks[idx] = 3
+
         self.update()
 
     def add_carved_artifact(self, source_offset: int):
