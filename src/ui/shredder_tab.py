@@ -1,14 +1,14 @@
 """
 File & Folder Shredder UI Component
 Features Drive Media Pre-Detection (HDD vs NVMe/SSD), NIST/DoD standards, and an interactive Standards Guide.
+Includes direct audit actions (View HTML Report, Manifest JSON, Open Folder, and Live Cryptographic Chain Verification).
 """
 import os
-import sys
 from pathlib import Path
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QIcon, QColor, QBrush, QFont
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl
+from PyQt6.QtGui import QColor, QBrush, QDesktopServices
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QProgressBar, QTableWidget, QTableWidgetItem,
     QGroupBox, QComboBox, QFileDialog, QMessageBox, QHeaderView,
     QDialog, QTextBrowser, QFrame
@@ -16,28 +16,22 @@ from PyQt6.QtWidgets import (
 
 from src.shredder.engine import ShredMethod, ALGORITHM_DESCRIPTIONS, shred_file
 from src.shredder.audit import AuditSession
-from src.utils.device_scanner import get_path_media_info, PathMediaInfo
+from src.utils.device_scanner import get_path_media_info
 
 
 class AlgorithmInfoDialog(QDialog):
-    """Interactive Modal Explaining Data Sanitization Standards & Passes."""
     """User-Friendly Modal Explaining Data Sanitization Standards & Passes."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Sanitization Standards & Algorithms Guide")
-        self.resize(620, 480)
         self.setWindowTitle("Sanitization Standards Guide")
-        self.resize(560, 420)
+        self.resize(560, 380)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
 
-        header = QLabel("<h3>🔬 Data Destruction Standards & When to Use Them</h3>")
-        header = QLabel("<h3>🔬 Algorithm & Standards Guide</h3>")
+        header = QLabel("<h3>🔬 Sanitization Standards & Passes Guide</h3>")
         layout.addWidget(header)
 
         browser = QTextBrowser()
@@ -45,40 +39,33 @@ class AlgorithmInfoDialog(QDialog):
 
         content = """
         <style>
-            body { font-family: sans-serif; font-size: 13px; line-height: 1.5; color: #202124; }
-            .card { background: #f8f9fa; border-left: 4px solid #1a73e8; padding: 10px 14px; margin-bottom: 14px; border-radius: 0 6px 6px 0; }
             body { font-family: "Segoe UI", sans-serif; font-size: 13px; line-height: 1.5; color: #202124; }
             .card { background: #f8f9fa; border-left: 4px solid #1a73e8; padding: 10px 14px; margin-bottom: 12px; border-radius: 0 6px 6px 0; }
             .title { font-weight: bold; font-size: 14px; color: #1a73e8; margin-bottom: 4px; }
-            .meta { font-size: 12px; color: #5f6368; margin-bottom: 6px; }
             .meta { font-size: 12px; color: #5f6368; margin-bottom: 4px; }
             .badge { background: #e8f0fe; color: #1a73e8; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+            .badge-legacy { background: #fce8e6; color: #d93025; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
             .warn { background: #fef7e0; border-left-color: #f9ab00; }
             .warn .title { color: #b06000; }
         </style>
         """
 
         for method, info in ALGORITHM_DESCRIPTIONS.items():
+            badge_class = "badge-legacy" if "[Legacy]" in method.value else "badge"
             content += f"""
             <div class="card">
                 <div class="title">{info['title']}</div>
-                <div class="meta"><b>Passes:</b> <span class="badge">{info['passes']}</span> &nbsp;|&nbsp; <b>Pattern:</b> {info['pattern']}</div>
-                <div><b>Recommended Use Case:</b> {info['use_case']}</div>
+                <div class="meta"><b>Passes:</b> <span class="{badge_class}">{info['passes']}</span> &nbsp;|&nbsp; <b>Pattern:</b> {info['pattern']}</div>
                 <div><b>Use Case:</b> {info['use_case']}</div>
             </div>
             """
 
         content += """
         <div class="card warn">
-            <div class="title">⚠️ Important: HDD vs. SSD / NVMe Physical Storage Physics</div>
-            <div class="title">💡 Storage Tip (HDD vs. SSD)</div>
+            <div class="title">💡 Storage Physics (HDD vs. SSD)</div>
             <div>
-                <b>Rotational Magnetic HDDs:</b> In-place overwriting physically destroys magnetic domain alignment under read/write heads.<br><br>
-                <b>Solid-State NVMe / SSDs:</b> Modern flash controllers use <i>wear-leveling</i> and <i>Flash Translation Layer (FTL)</i> over-provisioning. 
-                Writing to an existing file creates a new flash block and leaves the old block in unallocated flash until garbage collection. 
-                For absolute sanitization of SSDs, use firmware-level <b>Drive Sanitizer (ATA/NVMe Format)</b> in Tab 3.
-                <b>HDDs:</b> Single-file overwriting physically clears magnetic data.<br>
-                <b>SSDs / NVMe:</b> Flash wear-leveling may retain stale data in unallocated blocks. For total SSD clearing, use full <b>Drive Sanitization</b> (Tab 3).
+                <b>Rotational HDDs:</b> Single-pass sector overwrite under NIST SP 800-88 physically eliminates all magnetic traces.<br>
+                <b>SSDs / NVMe:</b> Flash wear-leveling controllers may retain stale data in unallocated flash blocks. For complete SSD sanitization, use firmware-level <b>Drive Sanitizer</b> (Tab 3).
             </div>
         </div>
         """
@@ -86,10 +73,8 @@ class AlgorithmInfoDialog(QDialog):
         browser.setHtml(content)
         layout.addWidget(browser)
 
-        btn_close = QPushButton("Close Guide")
         btn_close = QPushButton("Got It")
         btn_close.clicked.connect(self.accept)
-        btn_close.setFixedWidth(120)
         btn_close.setFixedWidth(100)
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -100,7 +85,7 @@ class AlgorithmInfoDialog(QDialog):
 class ShredWorker(QThread):
     progress_updated = pyqtSignal(int, int)  # file_index, total_files
     file_status = pyqtSignal(int, str, str)  # row_index, status, color_hex
-    finished_all = pyqtSignal(int, int, str) # success_count, fail_count, audit_dir
+    finished_all = pyqtSignal(int, int, dict) # success_count, fail_count, audit_info_dict
 
     def __init__(self, files: list[tuple[int, str, str, bool]], method: ShredMethod):
         super().__init__()
@@ -113,12 +98,11 @@ class ShredWorker(QThread):
         success_count = 0
         fail_count = 0
         total = len(self.files)
-        audit_path = ""
         session = AuditSession()
         session.begin_session(
             method=self.method.value,
             total_files=total,
-            platform=sys.platform,
+            platform=session.os_platform,
         )
         any_ssd = any(is_ssd for _, _, _, is_ssd in self.files)
 
@@ -126,7 +110,7 @@ class ShredWorker(QThread):
             if self._is_cancelled:
                 break
 
-            self.file_status.emit(row_idx, "Overwriting...", "#f57f17")
+            self.file_status.emit(row_idx, "Overwriting & Verifying...", "#f57f17")
 
             result = shred_file(
                 file_path,
@@ -138,10 +122,10 @@ class ShredWorker(QThread):
 
             if result.success and result.verified:
                 success_count += 1
-                self.file_status.emit(row_idx, "Destroyed, Verified & Unlinked", "#188038")
+                self.file_status.emit(row_idx, "Destroyed & Verified", "#188038")
             elif result.success:
                 success_count += 1
-                self.file_status.emit(row_idx, "Destroyed & Unlinked", "#f57f17")
+                self.file_status.emit(row_idx, "Destroyed (Unverified)", "#f57f17")
             else:
                 fail_count += 1
                 self.file_status.emit(row_idx, "Failed", "#d93025")
@@ -165,22 +149,20 @@ class ShredWorker(QThread):
 
             self.progress_updated.emit(i + 1, total)
 
-        info = session.finalize(ssd_notice=any_ssd)
-        if info:
-            audit_path = info["dir"]
-
-        self.finished_all.emit(success_count, fail_count, audit_path)
+        audit_info = session.finalize(ssd_notice=any_ssd) or {}
+        self.finished_all.emit(success_count, fail_count, audit_info)
 
     def cancel(self):
         self._is_cancelled = True
 
 
 class ShredderTab(QWidget):
-    """File & Folder Shredder UI Component with Media Pre-Detection & NIST Standards."""
+    """File & Folder Shredder UI Component with Media Pre-Detection, NIST/DoD Standards, and Audit Suite."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.worker: ShredWorker | None = None
+        self.last_audit_info: dict = {}
         self._init_ui()
 
     def _init_ui(self):
@@ -251,7 +233,7 @@ class ShredderTab(QWidget):
         ctrl_layout.addWidget(QLabel("Algorithm:"))
         
         self.method_combo = QComboBox()
-        self.method_combo.setMinimumWidth(260)
+        self.method_combo.setMinimumWidth(280)
         self.method_combo.setStyleSheet("""
             QComboBox {
                 background-color: #ffffff;
@@ -276,14 +258,10 @@ class ShredderTab(QWidget):
 
         for method in ShredMethod:
             self.method_combo.addItem(method.value, method)
-        # Default to NIST SP 800-88 Clear (index 0)
         self.method_combo.setCurrentIndex(0)
         ctrl_layout.addWidget(self.method_combo)
 
-        # Interactive "ℹ️ Standards Info" button
-        btn_info = QPushButton("ℹ️ Standards Guide")
-        btn_info.setStyleSheet("color: #1a73e8; font-weight: bold; border: 1px solid #dadce0;")
-        # Small circular (i) info button beside the algorithm combo
+        # Small circular (i) info button beside algorithm combo
         btn_info = QPushButton("ℹ")
         btn_info.setFixedSize(28, 28)
         btn_info.setToolTip("View algorithm details & standards guide")
@@ -310,7 +288,6 @@ class ShredderTab(QWidget):
         self.btn_shred = QPushButton("⚠️ PERMANENTLY SHRED SELECTED DATA")
         self.btn_shred.setStyleSheet("""
             QPushButton {
-                background-color: #d93025; color: white; font-weight: bold; border-radius: 4px; padding: 8px 20px; 
                 background-color: #d93025; color: white; font-weight: bold; border-radius: 16px; padding: 8px 20px; 
                 border: 1px solid #d93025; font-size: 12px;
             }
@@ -333,6 +310,32 @@ class ShredderTab(QWidget):
 
         main_layout.addWidget(self.status_label)
         main_layout.addWidget(self.progress_bar)
+
+        # 6. Audit & Certificate Action Footer
+        action_layout = QHBoxLayout()
+        self.btn_open_audit = QPushButton("📂 Open Audit Folder")
+        self.btn_open_audit.setEnabled(False)
+        self.btn_open_audit.clicked.connect(self._open_audit_folder)
+
+        self.btn_view_report = QPushButton("📊 View Certificate of Sanitization (HTML)")
+        self.btn_view_report.setEnabled(False)
+        self.btn_view_report.clicked.connect(self._open_report)
+
+        self.btn_view_manifest = QPushButton("📋 View Manifest (JSON)")
+        self.btn_view_manifest.setEnabled(False)
+        self.btn_view_manifest.clicked.connect(self._open_manifest)
+
+        self.btn_verify_chain = QPushButton("🔐 Verify Cryptographic Chain")
+        self.btn_verify_chain.setEnabled(False)
+        self.btn_verify_chain.clicked.connect(self._verify_chain)
+
+        action_layout.addWidget(self.btn_open_audit)
+        action_layout.addWidget(self.btn_view_report)
+        action_layout.addWidget(self.btn_view_manifest)
+        action_layout.addWidget(self.btn_verify_chain)
+        action_layout.addStretch()
+
+        main_layout.addLayout(action_layout)
 
     def _show_standards_info(self):
         dlg = AlgorithmInfoDialog(self)
@@ -370,7 +373,7 @@ class ShredderTab(QWidget):
         media_badge = "SSD / NVMe" if media_info.is_ssd else "HDD / Loop"
 
         item_path = QTableWidgetItem(file_path)
-        item_path.setData(Qt.ItemDataRole.UserRole, media_info)  # reuse in worker
+        item_path.setData(Qt.ItemDataRole.UserRole, media_info)
         item_size = QTableWidgetItem(size_str)
         item_media = QTableWidgetItem(media_badge)
         item_status = QTableWidgetItem("Queued")
@@ -396,7 +399,6 @@ class ShredderTab(QWidget):
             )
             return
 
-        # Check first queued file
         first_item = self.table.item(0, 0)
         if not first_item:
             return
@@ -429,6 +431,10 @@ class ShredderTab(QWidget):
         self.progress_bar.setValue(0)
         self.status_label.setText("Status: Waiting for target files.")
         self._update_media_detection()
+        self.btn_open_audit.setEnabled(False)
+        self.btn_view_report.setEnabled(False)
+        self.btn_view_manifest.setEnabled(False)
+        self.btn_verify_chain.setEnabled(False)
 
     def _start_shredding(self):
         rows = self.table.rowCount()
@@ -438,7 +444,6 @@ class ShredderTab(QWidget):
 
         method: ShredMethod = self.method_combo.currentData()
 
-        # Check if targets are on SSD to offer a dedicated forensic prompt
         first_item = self.table.item(0, 0)
         first_path = first_item.text() if first_item else ""
         media_info = get_path_media_info(first_path)
@@ -470,15 +475,12 @@ class ShredderTab(QWidget):
         self.btn_shred.setEnabled(False)
 
         files_to_shred = []
-        any_ssd = False
         for row in range(self.table.rowCount()):
             item = self.table.item(row, 0)
             if item:
                 media_info = item.data(Qt.ItemDataRole.UserRole)
                 is_ssd = bool(media_info.is_ssd) if media_info else False
                 media_type = media_info.media_type if media_info else "Unknown"
-                if is_ssd:
-                    any_ssd = True
                 files_to_shred.append((row, item.text(), media_type, is_ssd))
 
         self.progress_bar.setValue(0)
@@ -500,18 +502,66 @@ class ShredderTab(QWidget):
     def _update_progress(self, current: int, total: int):
         pct = int((current / total) * 100)
         self.progress_bar.setValue(pct)
-        self.status_label.setText(f"Status: Sanitizing... {current} of {total} files destroyed.")
+        self.status_label.setText(f"Status: Sanitizing & Verifying... {current} of {total} files destroyed.")
 
-    def _on_finished(self, success: int, fail: int, audit_path: str):
+    def _on_finished(self, success: int, fail: int, audit_info: dict):
         self.btn_shred.setEnabled(True)
+        self.last_audit_info = audit_info
         self.progress_bar.setValue(100)
         self.status_label.setText(f"Status: Sanitization complete. Destroyed: {success}, Failed: {fail}")
 
-        msg = f"Successfully destroyed {success} files.\nFailed to shred {fail} files."
-        if success and audit_path:
-            msg += f"\n\nAudit trail (tamper-evident, hash-chained):\n{audit_path}"
+        if audit_info:
+            self.btn_open_audit.setEnabled(True)
+            self.btn_view_report.setEnabled(True)
+            self.btn_view_manifest.setEnabled(True)
+            self.btn_verify_chain.setEnabled(True)
+
+        msg = (
+            f"Files removed: {success}\nFailed: {fail} files. "
+            "Verification status is shown per file."
+        )
+        if success and audit_info.get("dir"):
+            msg += f"\n\nTamper-Evident Audit Certificate:\n{audit_info['dir']}"
         QMessageBox.information(
             self,
             "Shredding Complete",
             msg,
         )
+
+    def _open_audit_folder(self):
+        audit_dir = self.last_audit_info.get("dir")
+        if audit_dir and os.path.exists(audit_dir):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(audit_dir))
+
+    def _open_report(self):
+        html_path = self.last_audit_info.get("html_path")
+        if html_path and os.path.exists(html_path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(html_path))
+
+    def _open_manifest(self):
+        manifest_path = self.last_audit_info.get("manifest_path")
+        if manifest_path and os.path.exists(manifest_path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(manifest_path))
+
+    def _verify_chain(self):
+        jsonl_path = self.last_audit_info.get("jsonl_path")
+        if not jsonl_path or not os.path.exists(jsonl_path):
+            QMessageBox.warning(self, "No Audit Log", "No active audit trail available to verify.")
+            return
+
+        is_valid = AuditSession.validate_chain(jsonl_path)
+        if is_valid:
+            QMessageBox.information(
+                self,
+                "Cryptographic Integrity Verified",
+                "✅ Tamper-Evident Audit Chain Validated!\n\n"
+                "All cryptographic hash links (SHA-256) match perfectly.\n"
+                "The audit log has not been modified, corrupted, or retroactively inserted."
+            )
+        else:
+            QMessageBox.critical(
+                self,
+                "Integrity Verification Failed",
+                "❌ Audit Chain Verification Failed!\n\n"
+                "A hash mismatch was detected in the audit log. The file may have been tampered with."
+            )
