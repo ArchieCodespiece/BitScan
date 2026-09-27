@@ -407,7 +407,29 @@ class ShredderTab(QWidget):
             size_str = "Unknown"
 
         media_info = get_path_media_info(file_path)
-        media_badge = "NVMe / SSD" if media_info.is_ssd else "Magnetic HDD"
+        m_upper = media_info.media_type.upper()
+
+        if "USB" in m_upper or "PEN DRIVE" in m_upper or "REMOVABLE" in m_upper:
+            media_badge = "USB Pen Drive"
+            badge_color = QColor("#38bdf8") if self.is_dark_mode else QColor("#0284c7")  # Cyan / Blue
+        elif "NVME" in m_upper:
+            media_badge = "NVMe SSD"
+            badge_color = QColor("#fbbf24") if self.is_dark_mode else QColor("#b45309")  # Amber
+        elif "SSD" in m_upper or media_info.is_ssd:
+            media_badge = "SATA SSD"
+            badge_color = QColor("#fbbf24") if self.is_dark_mode else QColor("#b45309")
+        elif "SD CARD" in m_upper or "MMC" in m_upper or m_upper.startswith("SD "):
+            media_badge = "SD Flash Card"
+            badge_color = QColor("#38bdf8") if self.is_dark_mode else QColor("#0284c7")
+        elif "RAM" in m_upper or "TMPFS" in m_upper:
+            media_badge = "RAM Disk"
+            badge_color = QColor("#c084fc") if self.is_dark_mode else QColor("#7e22ce")
+        elif "VIRTUAL" in m_upper or "LOOP" in m_upper:
+            media_badge = "Virtual Image"
+            badge_color = QColor("#94a3b8") if self.is_dark_mode else QColor("#475569")
+        else:
+            media_badge = "Magnetic HDD"
+            badge_color = QColor("#10b981") if self.is_dark_mode else QColor("#047857")  # Green
 
         item_path = QTableWidgetItem(file_path)
         item_path.setData(Qt.ItemDataRole.UserRole, media_info)
@@ -416,11 +438,8 @@ class ShredderTab(QWidget):
         item_status = QTableWidgetItem("Ready to Shred")
 
         cyan = QColor("#00e5ff") if self.is_dark_mode else QColor("#1a73e8")
-        amber = QColor("#fbbf24") if self.is_dark_mode else QColor("#b45309")
         item_status.setForeground(QBrush(cyan))
-
-        if media_info.is_ssd:
-            item_media.setForeground(QBrush(amber))
+        item_media.setForeground(QBrush(badge_color))
 
         self.table.setItem(row, 0, item_path)
         self.table.setItem(row, 1, item_size)
@@ -432,7 +451,7 @@ class ShredderTab(QWidget):
         if self.table.rowCount() == 0:
             self.lbl_media_icon.setText("🔍")
             self.lbl_media_text.setText(
-                "<b>Storage Pre-Detection:</b> Add target files or directories to inspect hardware media technology (HDD vs. SSD/NVMe)."
+                "<b>Storage Pre-Detection:</b> Add target files or directories to inspect hardware media technology (HDD vs. SSD vs. USB Pen Drive)."
             )
             if self.is_dark_mode:
                 self.media_card.setStyleSheet(
@@ -452,11 +471,30 @@ class ShredderTab(QWidget):
             return
 
         media_info = get_path_media_info(first_item.text())
+        m_upper = media_info.media_type.upper()
 
-        if media_info.is_ssd:
-            self.lbl_media_icon.setText("⚠️")
+        if "USB" in m_upper or "PEN DRIVE" in m_upper or "REMOVABLE" in m_upper:
+            self.lbl_media_icon.setText("⚡")
             self.lbl_media_text.setText(
-                f"<b>NVMe/SSD Media Detected ({media_info.device_path}):</b> "
+                f"<b>USB Flash / Pen Drive Detected ({media_info.device_path}):</b> "
+                "Removable NAND flash storage detected. File overwriting will destroy targeted sectors, but USB flash controllers "
+                "employ internal wear-leveling that may preserve stale blocks in spare capacity. "
+                "For high-assurance physical sanitization, consider full <b>Drive Sanitization</b> in Tab 3."
+            )
+            if self.is_dark_mode:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #082f49; border: 1px solid #0284c7; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #7dd3fc; font-size: 12px;")
+            else:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #f0f9ff; border: 1px solid #0284c7; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #0369a1; font-size: 12px;")
+        elif "NVME" in m_upper:
+            self.lbl_media_icon.setText("⚡")
+            self.lbl_media_text.setText(
+                f"<b>NVMe High-Speed Solid-State Storage Detected ({media_info.device_path}):</b> "
                 "Flash wear-leveling and FTL over-provisioning may retain stale blocks in unallocated flash. "
                 "Single-file overwriting cannot guarantee 100% physical NAND block destruction. "
                 "For high-security sanitization, consider full <b>Drive Sanitization</b> in Tab 3."
@@ -471,10 +509,70 @@ class ShredderTab(QWidget):
                     "QFrame { background-color: #fef7e0; border: 1px solid #f9ab00; border-radius: 8px; }"
                 )
                 self.lbl_media_text.setStyleSheet("color: #92400e; font-size: 12px;")
+        elif "SSD" in m_upper or media_info.is_ssd:
+            self.lbl_media_icon.setText("⚠️")
+            self.lbl_media_text.setText(
+                f"<b>Solid-State Drive (SSD) Detected ({media_info.device_path}):</b> "
+                "Flash wear-leveling and FTL over-provisioning may retain stale blocks in unallocated flash. "
+                "Single-file overwriting cannot guarantee 100% physical NAND block destruction. "
+                "For high-security sanitization, consider full <b>Drive Sanitization</b> in Tab 3."
+            )
+            if self.is_dark_mode:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #1c1505; border: 1px solid #f59e0b; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #fde68a; font-size: 12px;")
+            else:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #fef7e0; border: 1px solid #f9ab00; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #92400e; font-size: 12px;")
+        elif "SD CARD" in m_upper or "MMC" in m_upper or m_upper.startswith("SD "):
+            self.lbl_media_icon.setText("💳")
+            self.lbl_media_text.setText(
+                f"<b>SD / Flash Memory Card Detected ({media_info.device_path}):</b> "
+                "Removable NAND flash storage. Single-file overwriting destroys logical sectors, but flash wear-leveling applies."
+            )
+            if self.is_dark_mode:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #082f49; border: 1px solid #0284c7; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #7dd3fc; font-size: 12px;")
+            else:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #f0f9ff; border: 1px solid #0284c7; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #0369a1; font-size: 12px;")
+            if self.is_dark_mode:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #1c1505; border: 1px solid #f59e0b; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #fde68a; font-size: 12px;")
+            else:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #fef7e0; border: 1px solid #f9ab00; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #92400e; font-size: 12px;")
+        elif "RAM" in m_upper or "TMPFS" in m_upper:
+            self.lbl_media_icon.setText("🧠")
+            self.lbl_media_text.setText(
+                f"<b>RAM Disk / Volatile Memory Detected ({media_info.device_path}):</b> "
+                "Target file resides in volatile RAM. Data will clear naturally upon reboot."
+            )
+            if self.is_dark_mode:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #1a0b2e; border: 1px solid #a855f7; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #e9d5ff; font-size: 12px;")
+            else:
+                self.media_card.setStyleSheet(
+                    "QFrame { background-color: #faf5ff; border: 1px solid #a855f7; border-radius: 8px; }"
+                )
+                self.lbl_media_text.setStyleSheet("color: #6b21a8; font-size: 12px;")
         else:
             self.lbl_media_icon.setText("🛡️")
             self.lbl_media_text.setText(
-                f"<b>Magnetic / Block Storage Detected ({media_info.device_path}):</b> "
+                f"<b>Magnetic HDD Detected ({media_info.device_path}):</b> "
                 "In-place sector overwriting will physically destroy magnetic remanence under NIST SP 800-88 / DoD 5220.22-M."
             )
             if self.is_dark_mode:
@@ -515,7 +613,12 @@ class ShredderTab(QWidget):
             f"Standard: {method.value}\n\n"
             "This action CANNOT BE UNDONE. Overwritten data cannot be recovered even by deep laboratory forensic carvers.\n\n"
         )
-        if media_info.is_ssd:
+        if "USB" in media_info.media_type or "Pen Drive" in media_info.media_type:
+            warning_text += (
+                "⚠️ NOTE: Target files reside on a USB Flash / Pen Drive. "
+                "Logical file clusters will be destroyed, but flash wear-leveling controllers may retain spare blocks until full drive erasure.\n\n"
+            )
+        elif media_info.is_ssd:
             warning_text += (
                 "⚠️ NOTE: Files reside on Solid-State (SSD/NVMe) storage. "
                 "Logical file clusters will be destroyed, but flash wear-leveling may retain raw blocks until full drive erasure.\n\n"

@@ -40,10 +40,10 @@ class PathMediaInfo:
 # Windows Low-Level IOCTL & Media Detection Helpers
 # ---------------------------------------------------------------------------
 
-def _query_windows_ioctl(drive_letter: str) -> Optional[tuple[Optional[bool], str]]:
+def _query_windows_ioctl(drive_letter: str) -> Optional[tuple[Optional[bool], str, bool]]:
     """
     Queries Windows kernel storage driver via IOCTL_STORAGE_QUERY_PROPERTY.
-    Returns (is_ssd, bus_type_name) or None if unsupported/unreadable.
+    Returns (is_ssd, bus_type_name, is_removable) or None if unsupported/unreadable.
     """
     try:
         import ctypes
@@ -141,8 +141,10 @@ def _query_windows_ioctl(drive_letter: str) -> Optional[tuple[Optional[bool], st
                 None
             )
 
+            is_removable = False
             bus_type_str = ""
             if res_dev:
+                is_removable = bool(desc_dev.RemovableMedia)
                 bus_types = {
                     0x00: "Unknown", 0x01: "SCSI", 0x02: "ATAPI", 0x03: "ATA", 0x04: "1394",
                     0x05: "SSA", 0x06: "Fibre", 0x07: "USB", 0x08: "RAID", 0x09: "iSCSI",
@@ -150,31 +152,32 @@ def _query_windows_ioctl(drive_letter: str) -> Optional[tuple[Optional[bool], st
                 }
                 bus_type_str = bus_types.get(desc_dev.BusType, "")
 
-            return is_ssd, bus_type_str
+            return is_ssd, bus_type_str, is_removable
         finally:
             kernel32.CloseHandle(handle)
     except Exception:
         return None
 
 
-def _detect_windows_media_fallback(drive_letter: str) -> tuple[bool, str]:
+def _detect_windows_media_fallback(drive_letter: str) -> tuple[Optional[bool], str, bool]:
     """
-    Fallback media detection on Windows using PowerShell / MSFT_PhysicalDisk / Win32_DiskDrive.
+    Fallback media detection on Windows using PowerShell / Get-Disk / Win32_DiskDrive.
+    Returns (is_ssd, bus_type, is_removable).
     """
     clean_letter = drive_letter.rstrip("\\/").replace(":", "")
 
-    # 1. Try MSFT_PhysicalDisk / Get-PhysicalDisk
+    # 1. Try Get-Partition / Get-Disk
     try:
         ps_cmd = (
             f"$part = Get-Partition -DriveLetter '{clean_letter}' -ErrorAction SilentlyContinue; "
             "if ($part) { "
-            "  $disk = Get-PhysicalDisk -DeviceId $part.DiskNumber -ErrorAction SilentlyContinue; "
+            "  $disk = Get-Disk -Number $part.DiskNumber -ErrorAction SilentlyContinue; "
             "  if ($disk) { "
-            "    [PSCustomObject]@{ MediaType = $disk.MediaType; BusType = $disk.BusType; Model = $disk.FriendlyName } | ConvertTo-Json -Compress "
+            "    [PSCustomObject]@{ MediaType = [string]$disk.MediaType; BusType = [string]$disk.BusType; Model = $disk.FriendlyName } | ConvertTo-Json -Compress "
             "  } "
             "} "
             "if (-not $disk) { "
-            "  Get-PhysicalDisk | Select-Object -First 1 FriendlyName, MediaType, BusType | ConvertTo-Json -Compress "
+            "  Get-Disk | Select-Object -First 1 FriendlyName, MediaType, BusType | ConvertTo-Json -Compress "
             "}"
         )
         flags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
@@ -191,11 +194,13 @@ def _detect_windows_media_fallback(drive_letter: str) -> tuple[bool, str]:
             bus_type = str(data.get("BusType", "")).upper()
             model = str(data.get("Model", data.get("FriendlyName", ""))).upper()
 
-            # Check for NVMe / SSD matches
+            is_removable = ("USB" in bus_type or "USB" in model or "SD" in bus_type or "MMC" in bus_type)
+            if is_removable:
+                return True, "USB" if ("USB" in bus_type or "USB" in model) else bus_type, True
             if "SSD" in media_type or "SSD" in model or "NVME" in bus_type or "NVME" in model:
-                return True, "NVMe" if ("NVME" in bus_type or "NVME" in model) else "SSD"
+                return True, "NVMe" if ("NVME" in bus_type or "NVME" in model) else "SSD", False
             if "HDD" in media_type or "HDD" in model:
-                return False, "HDD"
+                return False, "HDD", False
     except Exception:
         pass
 
@@ -216,14 +221,17 @@ def _detect_windows_media_fallback(drive_letter: str) -> tuple[bool, str]:
                 data = [data]
             for d in data:
                 model = str(d.get("Model", "")).upper()
+                iface = str(d.get("InterfaceType", "")).upper()
+                if "USB" in iface or "USB" in model:
+                    return True, "USB", True
                 if any(k in model for k in ("SSD", "NVME", "OPTANE", "FLASH", "KIOXIA", "EVO", "PRO")):
-                    return True, "SSD"
+                    return True, "SSD", False
                 if any(k in model for k in ("HDD", "ST", "WD", "TOSHIBA", "BARRACUDA", "SPINPOINT")):
-                    return False, "HDD"
+                    return False, "HDD", False
     except Exception:
         pass
 
-    return False, "Standard Drive"
+    return False, "Standard Drive", False
 
 
 # ---------------------------------------------------------------------------
@@ -323,26 +331,98 @@ def get_path_media_info(file_path: str) -> PathMediaInfo:
         except Exception:
             pass
 
-    # 2. Windows Media Detection (IOCTL + PowerShell Fallback)
+    # 2. Windows Media Detection (IOCTL + GetDriveType + PowerShell Fallback)
     elif sys.platform == "win32":
-        drive_letter = os.path.splitdrive(abs_path)[0]  # e.g., "C:"
+        drive_letter = os.path.splitdrive(abs_path)[0].upper()  # e.g., "F:"
         if not drive_letter:
             drive_letter = "C:"
+
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        drive_root = f"{drive_letter}\\"
+        drive_type = kernel32.GetDriveTypeW(drive_root)
+        # 0: UNKNOWN, 1: NO_ROOT, 2: REMOVABLE, 3: FIXED, 4: REMOTE, 5: CDROM, 6: RAMDISK
 
         # Attempt 1: Fast direct Win32 IOCTL
         ioctl_res = _query_windows_ioctl(drive_letter)
         is_ssd = None
         bus_type = ""
+        is_removable = (drive_type == 2)
 
         if ioctl_res is not None:
-            is_ssd, bus_type = ioctl_res
+            is_ssd, bus_type, is_rem_ioctl = ioctl_res
+            if is_rem_ioctl:
+                is_removable = True
 
-        # Attempt 2: Fallback to PowerShell if IOCTL was ambiguous
-        if is_ssd is None:
-            is_ssd, bus_type = _detect_windows_media_fallback(drive_letter)
+        # Attempt 2: Fallback to PowerShell if needed
+        if is_ssd is None and not (is_removable or bus_type == "USB"):
+            fb_res = _detect_windows_media_fallback(drive_letter)
+            if fb_res is not None:
+                is_ssd, bus_type, is_rem_fb = fb_res
+                if is_rem_fb:
+                    is_removable = True
 
-        if is_ssd:
-            media_label = f"NVMe / SSD ({bus_type or 'Solid State'})"
+        # Classify Media
+        if drive_type == 6:  # DRIVE_RAMDISK
+            return PathMediaInfo(
+                file_path=abs_path,
+                device_path=drive_letter,
+                mountpoint=drive_letter,
+                media_type="RAM Disk (Volatile Memory)",
+                is_ssd=False,
+                warning_message="Notice: Target file resides in volatile RAM. Data will clear on reboot.",
+            )
+
+        if drive_type == 5:  # DRIVE_CDROM
+            return PathMediaInfo(
+                file_path=abs_path,
+                device_path=drive_letter,
+                mountpoint=drive_letter,
+                media_type="Optical Disc (CD/DVD)",
+                is_ssd=False,
+                warning_message="Notice: Optical media cannot be electronically sanitized via standard file overwrite.",
+            )
+
+        if drive_type == 4:  # DRIVE_REMOTE
+            return PathMediaInfo(
+                file_path=abs_path,
+                device_path=drive_letter,
+                mountpoint=drive_letter,
+                media_type="Network Share / Remote Storage",
+                is_ssd=False,
+                warning_message="Warning: Target file resides on a remote network share.",
+            )
+
+        if is_removable or bus_type == "USB":
+            return PathMediaInfo(
+                file_path=abs_path,
+                device_path=drive_letter,
+                mountpoint=drive_letter,
+                media_type="USB Flash Drive (Pen Drive / Removable)",
+                is_ssd=True,
+                warning_message=(
+                    f"⚠️ USB Flash / Pen Drive Detected ({drive_letter}): "
+                    "Removable NAND flash storage detected. File overwriting will destroy cluster data, but USB flash controllers "
+                    "employ internal wear-leveling that may preserve stale blocks in spare capacity. "
+                    "For high-assurance destruction, perform full Drive Sanitization in Tab 3."
+                ),
+            )
+
+        if bus_type in ("SD", "MMC"):
+            return PathMediaInfo(
+                file_path=abs_path,
+                device_path=drive_letter,
+                mountpoint=drive_letter,
+                media_type="SD / MMC Flash Card",
+                is_ssd=True,
+                warning_message=(
+                    f"⚠️ SD/Flash Card Detected ({drive_letter}): "
+                    "Flash wear-leveling applies to NAND flash storage."
+                ),
+            )
+
+        if is_ssd or bus_type == "NVMe":
+            media_label = "NVMe SSD" if bus_type == "NVMe" else f"SATA / M.2 SSD ({bus_type or 'Solid State'})"
             return PathMediaInfo(
                 file_path=abs_path,
                 device_path=drive_letter,
@@ -351,19 +431,23 @@ def get_path_media_info(file_path: str) -> PathMediaInfo:
                 is_ssd=True,
                 warning_message=(
                     f"⚠️ NVMe/SSD Storage Detected ({drive_letter}): "
-                    "Flash wear-leveling may retain stale blocks in unallocated flash. "
+                    "Flash wear-leveling and FTL over-provisioning may retain stale blocks in unallocated flash. "
+                    "Single-file overwriting cannot guarantee 100% physical NAND block destruction. "
                     "For high-security sanitization, consider full Drive Sanitization in Tab 3."
                 ),
             )
         else:
-            media_label = f"HDD ({bus_type or 'Magnetic Platter'})"
+            media_label = f"Magnetic HDD ({bus_type or 'Rotational Platter'})"
             return PathMediaInfo(
                 file_path=abs_path,
                 device_path=drive_letter,
                 mountpoint=drive_letter,
                 media_type=media_label,
                 is_ssd=False,
-                warning_message=f"✓ Magnetic Drive Detected ({drive_letter}): In-place overwriting destroys data remanence.",
+                warning_message=(
+                    f"✓ Magnetic HDD Detected ({drive_letter}): "
+                    "In-place sector overwriting will physically destroy magnetic domain alignment under NIST SP 800-88 / DoD 5220.22-M."
+                ),
             )
 
     # Default fallback
