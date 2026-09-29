@@ -1,0 +1,12 @@
+BitScan Sanitizer Report
+Timestamp UTC: 2026-09-26T15:34:48Z
+Target: [SIMULATED-RAM] Demo Disk
+Model: BitScan Virtual Magnetic HDD RAM-Target
+Serial: SIM-RAM
+Simulation: yes
+Method: Single-pass zero overwrite
+Result: SUCCESS
+Passes: 1
+Bytes written: 4194304
+Bytes verified: 4194304
+Verified: yes
