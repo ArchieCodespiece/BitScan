@@ -172,28 +172,28 @@ overwritten sector does not depend on pattern secrecy).
 | **ISO/IEC 27001 A.8.10 (Data Sanitization)** | Provides the sanitization capability + verifiable, auditable erasure records that satisfy the control's evidence expectations |
 | **ISO/IEC 27040 (Storage Data Deletion)** | Implements the standard's *overwrite* technique for file-level media with verification, and honestly scopes what file-level overwrite does and does not guarantee on flash |
 | **GDPR Art. 17 (Right to Erasure) / CCPA right to deletion** | Provides the operational tooling + proof artifact (erasure certificate package) an organization needs to *demonstrate* erasure was performed |
-| **NIST SP 800-88 Rev 1 (Purge, techniques)** | Overwrite-with-verification as the logical Purge step; hardware Purge methods (below) are the planned Drive Sanitizer scope |
+| **NIST SP 800-88 Rev 1 — Clear** | The drive backend performs logical block overwrite with readback verification. It does not implement firmware Purge. |
 
-### 2.3 Planned — Drive Sanitizer Tab (UI present, engine not yet implemented)
+### 2.3 Implemented — Windows Drive Sanitizer
 
-The Drive Sanitizer tab (`main_window.build_eraser_tab`) defines the intended scope.
-**None of this is implemented yet** — the tab is a static mockup and the erase
-button is not wired to any engine:
+The Drive Sanitizer UI invokes the Module 2 C backend asynchronously. Windows
+physical-device operations require Administrator privileges, reject the system
+disk, revalidate the selected device identity, and require an exact confirmation
+before writes begin.
 
-| Intended capability | Standard addressed |
+| Capability | Current behavior |
 |---|---|
-| Full-drive NIST Clear (single-pass zero + verification) | NIST SP 800-88 Rev 1 — Clear (block level) |
-| 3-pass Purge overwrite | NIST SP 800-88 Rev 1 — Purge / DoD 5220.22-M (block level) |
-| ATA Secure Erase / NVMe Format (firmware command) | NIST SP 800-88 Rev 1 — Purge (recommended for SSD/flash) |
-| Cryptographic Erase (key destruction) | NIST SP 800-88 Rev 1 — Purge; supports FIPS 197 AES workflows on encrypted volumes |
-| 100% cryptographic verification pass (SHA-256 entropy audit) | Verifiable erasure at drive level |
-| Tamper-resistant erasure certificate (PDF + signed JSON) | Auditable compliance evidence |
+| Full-device logical overwrite | Windows path enumerates volume extents on the selected disk, locks and dismounts matching volumes, and refuses to proceed if it cannot inspect/lock them or finds a spanned volume. It then performs one NIST Clear zero pass with byte-for-byte readback. |
+| Single-partition logical overwrite | Validates the selected partition's identity and extent, locks and dismounts that volume, then overwrites and verifies that partition only. |
+| DoD 5220.22-M | Three verified overwrite passes on supported magnetic and virtual targets; not offered for USB flash. |
+| USB / SD flash handling | Logical overwrite only; best-effort SCSI UNMAP is reported separately. The backend does not perform controller firmware purge or Crypto Erase. |
+| Evidence report | Plain-text report records target, method, pass count, bytes written/verified, and flash/UNMAP limitations. |
 
-**Guardrails that must exist before this engine ships** (design commitment):
-block-device identity re-verification (model + size + serial at confirm time),
-system-disk rejection (mounted `/`, `/boot`, `C:\`), and type-to-confirm
-destructive target name. File-level module (Tab 2) intentionally remains
-safe-by-construction: regular-file I/O only.
+The whole-device locking path is Windows-specific. Linux physical-device
+inventory and sanitization are not implemented. The current validation includes
+RAM simulations and code-level tests; it is not a substitute for qualification
+on each supported hardware/controller combination. File-level shredding remains
+separate from this raw-device backend.
 
 ---
 
@@ -218,11 +218,13 @@ safe-by-construction: regular-file I/O only.
   user-space file I/O — the audit trail records this boundary per session.
 - **BitScan CES is experimental**: dynamic chaos streams are not byte-verifiable by
   construction; the UI and reports flag them as such.
-- **SSD/USB flash**: file-level overwrite cannot guarantee physical NAND block
-  destruction (wear leveling / FTL over-provisioning). Drive-level Purge
-  (Tab 3, planned) is the correct tool for that guarantee.
+- **SSD/USB flash**: logical overwrite cannot guarantee physical NAND block
+  destruction (wear leveling / FTL over-provisioning). Firmware Purge is not
+  implemented in the Drive Sanitizer.
 - **macOS media detection** falls back to generic ("Standard Storage Device");
   shredding itself is fully portable.
 - **No automated test suite committed yet** for the shredder engine (engine is
   headless-testable by design).
-- **Drive Sanitizer is a mockup** — presented here as planned scope only.
+- **Drive Sanitizer hardware coverage**: physical I/O depends on Windows storage
+  drivers, USB bridges, and device behavior; a successful RAM simulation alone
+  does not qualify a physical target.
