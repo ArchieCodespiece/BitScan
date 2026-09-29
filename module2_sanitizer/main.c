@@ -1,6 +1,6 @@
-#include "include/os_adapter.h"
-#include "include/reporter.h"
-#include "include/sanitizer_engine.h"
+#include "os_adapter.h"
+#include "reporter.h"
+#include "sanitizer_engine.h"
 
 
 #include <errno.h>
@@ -10,7 +10,7 @@
 #include <string.h>
 
 #ifdef _WIN32
-#include "include/interrogator.h"
+#include "interrogator.h"
 #define INVENTORY_LIMIT 64
 #endif
 
