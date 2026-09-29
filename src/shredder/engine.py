@@ -1,6 +1,6 @@
 """
 BitScan File & Folder Sanitization Engine
-Implements NIST SP 800-88 Rev. 1 Clear (Default) and DoD 5220.22-M (Legacy) standards with
+Implements NIST SP 800-88 Rev. 2 Clear (Default) and DoD 5220.22-M (Legacy) standards with
 cluster-slack overwrite, best-effort metadata scrubbing, byte-verifiable
 deterministic pass streams, and tamper-evident audit event emission.
 
@@ -32,7 +32,7 @@ class ShredMethod(Enum):
 
 ALGORITHM_DESCRIPTIONS = {
     ShredMethod.NIST: {
-        "title": "NIST SP 800-88 Rev. 1 (Clear)",
+        "title": "NIST SP 800-88 Rev. 2 (Clear)",
         "passes": "1 Pass",
         "pattern": "Single-pass pseudorandom byte overwrite + synchronous hardware cache flush + readback verification.",
         "use_case": "The universally recognized modern default standard (NIST, ISO/IEC 27001). Scientifically proven to eliminate magnetic remanence on modern drives in 1 pass. Recommended for all standard sanitization.",

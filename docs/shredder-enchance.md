@@ -1,7 +1,7 @@
 pre detect the drive before performing the operation:
 if hdd:
 
-NIST SP 800-88 Rev. 1 (Clear) — 1 Pass (Default): The modern, universally recognized default standard. Writes single-pass pseudorandom bytes or zeros.
+NIST SP 800-88 Rev. 2 (Clear) — 1 Pass (Default): The modern, universally recognized default standard. Writes single-pass pseudorandom bytes or zeros.
 
 DoD 5220.22-M — 3 Passes (Legacy Compliance Toggle): The legacy standard. Kept solely because older government/agency policies explicitly mandate "3-pass DoD wipes" by name.
 if nvme: 

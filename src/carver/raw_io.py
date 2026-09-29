@@ -146,25 +146,31 @@ class RawReader:
         if self._mmap_obj is not None:
             return self._mmap_obj[offset : offset + length]
 
-        # For raw unbuffered Windows drives, length must be a multiple of the sector size
+        # For raw unbuffered Windows drives, offset and length must be aligned to sector size (512)
         is_raw_win = sys.platform == "win32" and self.path.startswith("\\\\.\\")
-        read_len = length
         if is_raw_win:
             align = 512
-            read_len = ((length + align - 1) // align) * align
+            aligned_offset = (offset // align) * align
+            lead_diff = offset - aligned_offset
+            read_len = ((length + lead_diff + align - 1) // align) * align
+            try:
+                self._file_obj.seek(aligned_offset)
+                data = self._file_obj.read(read_len)
+                return data[lead_diff : lead_diff + length] if data else b""
+            except Exception:
+                try:
+                    self._file_obj.seek(offset)
+                    data = self._file_obj.read(read_len)
+                    return data[:length] if data else b""
+                except Exception:
+                    return b""
 
         try:
             self._file_obj.seek(offset)
-            data = self._file_obj.read(read_len)
-            return data[:length] if data else b""
+            data = self._file_obj.read(length)
+            return data if data else b""
         except Exception:
-            # Fallback for weird edge cases (like EOF alignment)
-            try:
-                self._file_obj.seek(offset)
-                data = self._file_obj.read(length)
-                return data
-            except Exception:
-                return b""
+            return b""
 
     def close(self):
         if self._mmap_obj is not None:

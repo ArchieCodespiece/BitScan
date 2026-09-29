@@ -96,6 +96,83 @@ class PNGValidator:
         )
 
 
+def find_jpeg_boundary(data: bytes) -> tuple[bool, int]:
+    """
+    Parses JPEG marker segments and entropy-coded data to locate the exact end of image.
+    Skips embedded Exif thumbnails via APP1 segment length, supports progressive scans,
+    restart markers, and terminates cleanly at EOI (0xFF 0xD9).
+    """
+    if len(data) < 4 or data[:2] != b"\xff\xd8":
+        return False, len(data)
+
+    idx = 2
+    n = len(data)
+    while idx < n:
+        if data[idx] != 0xFF:
+            while idx < n and data[idx] != 0xFF:
+                idx += 1
+            if idx >= n:
+                break
+
+        while idx < n and data[idx] == 0xFF:
+            idx += 1
+        if idx >= n:
+            break
+
+        marker = data[idx]
+        idx += 1
+
+        if marker == 0x00:
+            # Stuffed byte inside entropy scan
+            continue
+        elif 0xD0 <= marker <= 0xD7:
+            # Restart marker RST0-RST7 (no payload)
+            continue
+        elif marker == 0xD9:
+            # End of Image (EOI)
+            return True, idx
+        elif marker == 0xD8:
+            # Next Start of Image (SOI) - previous image ended without clean EOI
+            return True, max(0, idx - 2)
+        else:
+            # Variable-length marker segment (APPn, SOFn, DQT, DHT, SOS, COM, etc.)
+            if idx + 2 > n:
+                break
+            seg_len = (data[idx] << 8) | data[idx + 1]
+            if seg_len < 2:
+                break
+            idx += seg_len
+
+    return False, len(data)
+
+
+def find_png_boundary(data: bytes) -> tuple[bool, int]:
+    """Parses PNG chunk stream and terminates cleanly at the end of IEND chunk."""
+    if len(data) < 8 or data[:8] != b"\x89PNG\r\n\x1a\n":
+        return False, len(data)
+
+    idx = 8
+    n = len(data)
+    while idx + 8 <= n:
+        chunk_len = struct.unpack(">I", data[idx : idx + 4])[0]
+        chunk_type = data[idx + 4 : idx + 8]
+        if chunk_len > 100 * 1024 * 1024:
+            break
+        total_chunk = 8 + chunk_len + 4
+        if idx + total_chunk > n:
+            break
+        idx += total_chunk
+        if chunk_type == b"IEND":
+            return True, idx
+
+    # Fallback search for IEND signature
+    iend_pos = data.find(b"IEND\xaeB`\x82")
+    if iend_pos != -1:
+        return True, iend_pos + 8
+
+    return False, len(data)
+
+
 def find_zip_boundary(data: bytes) -> tuple[bool, int]:
     """Finds exact end of ZIP archive including complete 22-byte EOCD record and comment."""
     if len(data) < 22:

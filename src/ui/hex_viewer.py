@@ -143,7 +143,7 @@ class HexViewer(QWidget):
         # Tab 1: Hex View
         self.hex_browser = QTextBrowser()
         self.hex_browser.setFont(QFont("Consolas", 10))
-        self.tabs.addTab(self.hex_browser, "🔍 Raw Hex Dump")
+        self.tabs.addTab(self.hex_browser, "Raw Hex Dump")
 
         # Tab 2: Forensic Metadata & Entropy
         self.meta_widget = QWidget()
@@ -173,7 +173,7 @@ class HexViewer(QWidget):
         # Metadata Browser
         self.meta_browser = QTextBrowser()
         meta_layout.addWidget(self.meta_browser)
-        self.tabs.addTab(self.meta_widget, "📊 Metadata && Cryptography")
+        self.tabs.addTab(self.meta_widget, "Metadata && Cryptography")
 
         # Tab 3: Visual Preview
         self.preview_widget = QWidget()
@@ -182,7 +182,7 @@ class HexViewer(QWidget):
         self.lbl_preview_img = QLabel("No preview available")
         self.lbl_preview_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
         prev_layout.addWidget(self.lbl_preview_img)
-        self.tabs.addTab(self.preview_widget, "🖼️ Visual Artifact Preview")
+        self.tabs.addTab(self.preview_widget, "Visual Artifact Preview")
 
         layout.addWidget(self.tabs)
         self.set_theme(True)

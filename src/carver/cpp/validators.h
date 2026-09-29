@@ -22,6 +22,8 @@ public:
     // Format-specific exact boundary locators
     static bool find_zip_boundary(const uint8_t* data, size_t length, size_t& out_size);
     static bool find_pdf_boundary(const uint8_t* data, size_t length, size_t& out_size);
+    static bool find_jpeg_boundary(const uint8_t* data, size_t length, size_t& out_size);
+    static bool find_png_boundary(const uint8_t* data, size_t length, size_t& out_size);
 
 private:
     static ValidationResult validate_jpeg(const uint8_t* data, size_t length, bool footer_present);

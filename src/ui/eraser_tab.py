@@ -1,6 +1,6 @@
 """
 Physical Drive Sanitizer UI Component
-NIST SP 800-88 Rev. 1 & DoD 5220.22-M Whole-Disk Hardware Sanitization Engine.
+NIST SP 800-88 Rev. 2 & DoD 5220.22-M Whole-Disk Hardware Sanitization Engine.
 Safely detects raw physical drives and removable USB media with safety interlocks.
 """
 import os
@@ -172,7 +172,7 @@ class EraserTab(QWidget):
         self.algo_dropdown = QComboBox()
         self.algo_dropdown.setFixedHeight(32)
         self.algo_dropdown.addItems([
-            "NIST SP 800-88 Rev. 1 Clear (Single-Pass 0x00 Zero-Fill with Verification)",
+            "NIST SP 800-88 Rev. 2 Clear (Single-Pass 0x00 Zero-Fill with Verification)",
             "DoD 5220.22-M (3-Pass: 0x00, 0xFF, Cryptographic PRNG + Verify)",
             "Cryptographic Pseudo-Random Stream (1-Pass PRNG Overwrite)",
             "Fast Header & Partition Table Zeroing (MBR/GPT Wipe)",

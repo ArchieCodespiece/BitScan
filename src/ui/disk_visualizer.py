@@ -196,7 +196,7 @@ class DiskVisualizer(QWidget):
                 if idx == self.active_block_idx:
                     state_str = "Active Read-Head"
                 elif self.blocks[idx] == 3:
-                    state_str = "⭐ Artifact Carved"
+                    state_str = "Artifact Carved"
                 elif self.blocks[idx] == 1:
                     state_str = "Skipped Unallocated Space"
                 elif self.blocks[idx] == 2:

@@ -66,7 +66,7 @@ Built using Python for rapid orchestration but powered by **PyQt6 (C++ Qt framew
 
 Security claims for this tool are scoped to what is physically achievable through standard file I/O:
 
-- **NIST SP 800-88 Rev. 1 Clear (HDD):** single random-pass overwrite of the file's logical extent + `fsync` + cluster-slack wipe + best-effort metadata scrub. Meets *Clear* for the file extent on magnetic media. File slack is wiped up to the filesystem allocation boundary (`st_blocks`).
+- **NIST SP 800-88 Rev. 2 Clear (HDD):** single random-pass overwrite of the file's logical extent + `fsync` + cluster-slack wipe + best-effort metadata scrub. Meets *Clear* for the file extent on magnetic media. File slack is wiped up to the filesystem allocation boundary (`st_blocks`).
 - **Metadata scrub is best-effort:** NTFS `$MFT` record interior bytes, `$LogFile`, USN journal, alternate data streams, and POSIX xattrs are not reachable via safe file I/O.
 - **SSD / NVMe / USB flash:** logical sectors are overwritten, but wear-leveling/FTL may retain stale NAND blocks. True sanitization requires device-level ATA Secure Erase / NVMe-Format (drive sanitizer out of scope for now).
 - **DoD 5220.22-M:** kept for legacy compliance policies; NIST 800-88 Rev. 1 no longer recommends multi-pass.

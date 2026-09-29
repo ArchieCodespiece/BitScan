@@ -349,10 +349,13 @@ CARVER_API int Carver_Scan(
         // 2. High-speed multi-word 64-bit empty/blank flash block skipping (zeroed or 0xFF wiped NAND)
         // Active in all modes because a block containing only 0x00 or only 0xFF cannot contain any file header.
         {
-            size_t check_len = std::min(bytes_available, static_cast<size_t>(65536)); // Check up to 64 KB block
+            size_t check_len = std::min(bytes_available, static_cast<size_t>(256 * 1024)); // Check up to 256 KB block
             check_len = (check_len / sector_size) * sector_size;
             if (check_len >= static_cast<size_t>(sector_size) && FilesystemBitmap::is_empty_or_unallocated_block(sector_ptr, check_len)) {
                 offset += check_len;
+                continue;
+            } else if (bytes_available >= 65536 && FilesystemBitmap::is_empty_or_unallocated_block(sector_ptr, 65536)) {
+                offset += 65536;
                 continue;
             }
         }
@@ -404,28 +407,19 @@ CARVER_API int Carver_Scan(
                                 return true;
                             }
                         } else if (lower_sig == "png") {
-                            const uint8_t iend_sig[8] = {'I', 'E', 'N', 'D', 0xAE, 0x42, 0x60, 0x82};
-                            const uint8_t* p = find_subsequence(buf, buf_len, iend_sig, 8);
-                            if (p) {
-                                out_len = (p - buf) + 8;
+                            if (FileValidator::find_png_boundary(buf, buf_len, out_len)) {
                                 out_footer = true;
                                 return true;
                             }
                         } else if (lower_sig == "jpeg" || lower_sig == "jpg") {
-                            // Find the LAST \xFF\xD9 marker to avoid truncating on Exif thumbnail JPEGs
-                            if (buf_len >= 4) {
-                                for (int64_t i = static_cast<int64_t>(buf_len) - 2; i >= 2; --i) {
-                                    if (buf[i] == 0xFF && buf[i+1] == 0xD9) {
-                                        out_len = static_cast<size_t>(i + 2);
-                                        out_footer = true;
-                                        return true;
-                                    }
-                                }
+                            if (FileValidator::find_jpeg_boundary(buf, buf_len, out_len)) {
+                                out_footer = true;
+                                return true;
                             }
                         } else if (lower_sig == "gif") {
-                            for (int64_t i = static_cast<int64_t>(buf_len) - 1; i >= 13; --i) {
+                            for (size_t i = 13; i < buf_len; ++i) {
                                 if (buf[i] == 0x3B) {
-                                    out_len = static_cast<size_t>(i + 1);
+                                    out_len = i + 1;
                                     out_footer = true;
                                     return true;
                                 }
@@ -506,7 +500,7 @@ CARVER_API int Carver_Scan(
 
                         // Advance past the carved file, aligned to sector_size
                         size_t step = std::max(static_cast<size_t>(sector_size), extracted_len);
-                        step = (step / sector_size) * sector_size;
+                        step = ((step + sector_size - 1) / sector_size) * sector_size;
                         offset += step;
                         break;
                     }

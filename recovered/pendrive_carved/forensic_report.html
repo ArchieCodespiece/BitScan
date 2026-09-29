@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>BitScan Forensic Carving Report</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f8f9fa; color: #333; margin: 0; padding: 24px; }
+        .header { background: #1a252f; color: white; padding: 20px 28px; border-radius: 8px; margin-bottom: 24px; }
+        .header h1 { margin: 0 0 8px 0; font-size: 24px; }
+        .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 16px; }
+        .meta-card { background: rgba(255,255,255,0.1); padding: 12px 16px; border-radius: 6px; }
+        .meta-label { font-size: 12px; color: #adb5bd; text-transform: uppercase; }
+        .meta-value { font-size: 16px; font-weight: bold; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        th { background: #2c3e50; color: white; text-align: left; padding: 12px 14px; font-size: 13px; }
+        td { padding: 10px 14px; border-bottom: 1px solid #dee2e6; font-size: 13px; vertical-align: middle; }
+        tr:hover { background: #f1f3f5; }
+        code { background: #e9ecef; padding: 2px 4px; border-radius: 3px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>BitScan Forensic Carving Report</h1>
+        <div>Chain of Custody & Evidence Carving Manifest</div>
+        <div class="meta-grid">
+            <div class="meta-card">
+                <div class="meta-label">Source Media</div>
+                <div class="meta-value">\\.\D:</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-label">Total Artifacts Recovered</div>
+                <div class="meta-value">7 files</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-label">Scan Timestamp</div>
+                <div class="meta-value">2026-09-29 21:42:12</div>
+            </div>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>File Name</th>
+                <th>Category</th>
+                <th>Type</th>
+                <th>Source Offset</th>
+                <th>Size</th>
+                <th>Confidence</th>
+                <th>SHA-256 Checksum</th>
+            </tr>
+        </thead>
+        <tbody>
+            
+            <tr>
+                <td><b>#1</b></td>
+                <td>carve_0001_png.png</td>
+                <td><span style="background: #e9ecef; padding: 2px 6px; border-radius: 4px;">IMAGE</span></td>
+                <td>PNG</td>
+                <td><code>0x01589000</code></td>
+                <td>1.8 KB</td>
+                <td><span style="color: white; background: #28a745; padding: 2px 8px; border-radius: 10px; font-weight: bold;">100%</span></td>
+                <td><small style="font-family: monospace;">45c7525255b8944b...</small></td>
+            </tr>
+            
+            <tr>
+                <td><b>#2</b></td>
+                <td>carve_0002_jpeg.jpg</td>
+                <td><span style="background: #e9ecef; padding: 2px 6px; border-radius: 4px;">IMAGE</span></td>
+                <td>JPEG</td>
+                <td><code>0x0158A000</code></td>
+                <td>21.4 KB</td>
+                <td><span style="color: white; background: #28a745; padding: 2px 8px; border-radius: 10px; font-weight: bold;">100%</span></td>
+                <td><small style="font-family: monospace;">ca9b4ff658029970...</small></td>
+            </tr>
+            
+            <tr>
+                <td><b>#3</b></td>
+                <td>carve_0003_jpeg.jpg</td>
+                <td><span style="background: #e9ecef; padding: 2px 6px; border-radius: 4px;">IMAGE</span></td>
+                <td>JPEG</td>
+                <td><code>0x01590000</code></td>
+                <td>56.1 KB</td>
+                <td><span style="color: white; background: #28a745; padding: 2px 8px; border-radius: 10px; font-weight: bold;">100%</span></td>
+                <td><small style="font-family: monospace;">040a3c668c38b9df...</small></td>
+            </tr>
+            
+            <tr>
+                <td><b>#4</b></td>
+                <td>carve_0004_jpeg.jpg</td>
+                <td><span style="background: #e9ecef; padding: 2px 6px; border-radius: 4px;">IMAGE</span></td>
+                <td>JPEG</td>
+                <td><code>0x0159F000</code></td>
+                <td>38.6 KB</td>
+                <td><span style="color: white; background: #28a745; padding: 2px 8px; border-radius: 10px; font-weight: bold;">100%</span></td>
+                <td><small style="font-family: monospace;">9db4d718eff699f7...</small></td>
+            </tr>
+            
+            <tr>
+                <td><b>#5</b></td>
+                <td>carve_0005_jpeg.jpg</td>
+                <td><span style="background: #e9ecef; padding: 2px 6px; border-radius: 4px;">IMAGE</span></td>
+                <td>JPEG</td>
+                <td><code>0x015A9000</code></td>
+                <td>36.2 KB</td>
+                <td><span style="color: white; background: #28a745; padding: 2px 8px; border-radius: 10px; font-weight: bold;">100%</span></td>
+                <td><small style="font-family: monospace;">2ba49a44b4f61732...</small></td>
+            </tr>
+            
+            <tr>
+                <td><b>#6</b></td>
+                <td>carve_0006_jpeg.jpg</td>
+                <td><span style="background: #e9ecef; padding: 2px 6px; border-radius: 4px;">IMAGE</span></td>
+                <td>JPEG</td>
+                <td><code>0x015B8000</code></td>
+                <td>46.0 KB</td>
+                <td><span style="color: white; background: #28a745; padding: 2px 8px; border-radius: 10px; font-weight: bold;">100%</span></td>
+                <td><small style="font-family: monospace;">b97ed517c04a08f2...</small></td>
+            </tr>
+            
+            <tr>
+                <td><b>#7</b></td>
+                <td>carve_0007_jpeg.jpg</td>
+                <td><span style="background: #e9ecef; padding: 2px 6px; border-radius: 4px;">IMAGE</span></td>
+                <td>JPEG</td>
+                <td><code>0x015CA000</code></td>
+                <td>25.6 KB</td>
+                <td><span style="color: white; background: #28a745; padding: 2px 8px; border-radius: 10px; font-weight: bold;">100%</span></td>
+                <td><small style="font-family: monospace;">c6b592c0303f0456...</small></td>
+            </tr>
+            
+        </tbody>
+    </table>
+</body>
+</html>

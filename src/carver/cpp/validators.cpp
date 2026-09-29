@@ -97,6 +97,89 @@ ValidationResult FileValidator::validate_png(const uint8_t* data, size_t length,
     return res;
 }
 
+bool FileValidator::find_jpeg_boundary(const uint8_t* data, size_t length, size_t& out_size) {
+    if (!data || length < 4) return false;
+    if (data[0] != 0xFF || data[1] != 0xD8) return false;
+
+    size_t idx = 2;
+    while (idx < length) {
+        // Fast skip non-0xFF entropy bytes
+        if (data[idx] != 0xFF) {
+            while (idx < length && data[idx] != 0xFF) {
+                idx++;
+            }
+            if (idx >= length) break;
+        }
+
+        // Skip 0xFF fill bytes
+        while (idx < length && data[idx] == 0xFF) {
+            idx++;
+        }
+        if (idx >= length) break;
+
+        uint8_t marker = data[idx++];
+
+        if (marker == 0x00) {
+            // Byte-stuffed 0xFF inside entropy-coded scan
+            continue;
+        } else if (marker >= 0xD0 && marker <= 0xD7) {
+            // Restart marker RST0-RST7 (no payload)
+            continue;
+        } else if (marker == 0xD9) {
+            // End of Image (EOI)
+            out_size = idx;
+            return true;
+        } else if (marker == 0xD8) {
+            // Next Start of Image (SOI) - previous image ended without clean EOI
+            out_size = (idx >= 2) ? (idx - 2) : 0;
+            return true;
+        } else {
+            // Variable-length marker segment (APPn, SOFn, DQT, DHT, SOS, COM, etc.)
+            if (idx + 2 > length) break;
+            uint16_t seg_len = (static_cast<uint16_t>(data[idx]) << 8) | data[idx + 1];
+            if (seg_len < 2) break;
+            idx += seg_len;
+        }
+    }
+
+    return false;
+}
+
+bool FileValidator::find_png_boundary(const uint8_t* data, size_t length, size_t& out_size) {
+    if (!data || length < 8) return false;
+    const uint8_t png_magic[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (memcmp(data, png_magic, 8) != 0) return false;
+
+    size_t idx = 8;
+    while (idx + 8 <= length) {
+        uint32_t chunk_len = (static_cast<uint32_t>(data[idx]) << 24) |
+                             (static_cast<uint32_t>(data[idx + 1]) << 16) |
+                             (static_cast<uint32_t>(data[idx + 2]) << 8) |
+                             static_cast<uint32_t>(data[idx + 3]);
+        if (chunk_len > 100 * 1024 * 1024) break;
+
+        const uint8_t* chunk_type = data + idx + 4;
+        size_t total_chunk = 8 + static_cast<size_t>(chunk_len) + 4;
+        if (idx + total_chunk > length) break;
+
+        idx += total_chunk;
+        if (memcmp(chunk_type, "IEND", 4) == 0) {
+            out_size = idx;
+            return true;
+        }
+    }
+
+    // Fallback: search for IEND chunk signature
+    const uint8_t iend_sig[8] = {'I', 'E', 'N', 'D', 0xAE, 0x42, 0x60, 0x82};
+    const uint8_t* p = memmem_custom(data, length, iend_sig, 8);
+    if (p) {
+        out_size = (p - data) + 8;
+        return true;
+    }
+
+    return false;
+}
+
 bool FileValidator::find_zip_boundary(const uint8_t* data, size_t length, size_t& out_size) {
     if (!data || length < 22) return false;
 

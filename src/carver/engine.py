@@ -10,7 +10,14 @@ from typing import Generator, Optional, Callable
 from src.models.carved_file import CarvedFile
 from src.carver.raw_io import RawReader
 from src.carver.signatures import SignatureStore, FileSignature
-from src.carver.validators import ValidatorRegistry, calculate_confidence, find_zip_boundary, find_pdf_boundary
+from src.carver.validators import (
+    ValidatorRegistry,
+    calculate_confidence,
+    find_zip_boundary,
+    find_pdf_boundary,
+    find_jpeg_boundary,
+    find_png_boundary,
+)
 from src.carver.classifier import classify
 from src.carver.native_engine import is_native_available, NativeCarvingEngine
 
@@ -110,6 +117,7 @@ class CarvingEngine:
                     s for s in active_sigs if header_window.startswith(s.header)
                 ]
 
+                carved_file_found = False
                 for sig in matched_sigs:
                     carved = self._extract_and_validate(
                         reader, offset, sig, output_dir, carve_id
@@ -120,9 +128,14 @@ class CarvingEngine:
                         if progress_callback:
                             progress_callback(offset, total_size, files_found_count)
                         yield carved
+                        step = max(job.sector_size, carved.size)
+                        step = ((step + job.sector_size - 1) // job.sector_size) * job.sector_size
+                        offset += step
+                        carved_file_found = True
                         break
 
-                offset += job.sector_size
+                if not carved_file_found:
+                    offset += job.sector_size
 
             # Final progress report at 100%
             if progress_callback:
@@ -162,15 +175,15 @@ class CarvingEngine:
                 candidate_bytes = candidate_bytes[:extracted_len]
                 footer_found = True
         elif name_lower == "png":
-            iend_pos = candidate_bytes.find(b"IEND\xaeB`\x82")
-            if iend_pos != -1:
-                extracted_len = iend_pos + 8
+            has_bnd, exact_len = find_png_boundary(candidate_bytes)
+            if has_bnd:
+                extracted_len = exact_len
                 candidate_bytes = candidate_bytes[:extracted_len]
                 footer_found = True
         elif name_lower in ("jpeg", "jpg"):
-            last_eoi = candidate_bytes.rfind(b"\xff\xd9")
-            if last_eoi != -1:
-                extracted_len = last_eoi + 2
+            has_bnd, exact_len = find_jpeg_boundary(candidate_bytes)
+            if has_bnd:
+                extracted_len = exact_len
                 candidate_bytes = candidate_bytes[:extracted_len]
                 footer_found = True
         elif sig.footer:

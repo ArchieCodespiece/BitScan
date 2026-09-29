@@ -1,7 +1,7 @@
 """
 BitScan Shredder Audit & Erasure Report Generator.
 
-Implements NIST SP 800-88 Rev. 1 (Appendix G) Certificate of Sanitization standards.
+Implements NIST SP 800-88 Rev. 2 (Appendix G) Certificate of Sanitization standards.
 Outputs:
   - manifest.json: Machine-readable certificate & manifest.
   - erasure_report.html: Styled, human-readable Certificate of Sanitization.
@@ -234,7 +234,7 @@ class AuditSession:
         self._fh.close()
 
         manifest_data = {
-            "certificate_standard": "NIST SP 800-88 Rev. 1 (Appendix G) & DoD 5220.22-M Compliance",
+            "certificate_standard": "NIST SP 800-88 Rev. 2 (Appendix G) & DoD 5220.22-M Compliance",
             "forensic_tool": "BitScan - Data Sanitization & Forensic Recovery Suite",
             "version": self.version,
             "session_id": self.session_id,
@@ -336,7 +336,7 @@ class AuditSession:
 <body>
     <div class="header">
         <h1>BitScan Certificate of Sanitization</h1>
-        <div class="subtitle">NIST SP 800-88 Rev. 1 &amp; DoD 5220.22-M Compliance Manifest</div>
+        <div class="subtitle">NIST SP 800-88 Rev. 2 &amp; DoD 5220.22-M Compliance Manifest</div>
         <div class="meta-grid">
             <div class="meta-card">
                 <div class="meta-label">Session ID</div>

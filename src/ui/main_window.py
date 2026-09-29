@@ -42,7 +42,7 @@ class MainWindow(QMainWindow):
         title_lbl.setObjectName("appTitle")
         title_lbl.setStyleSheet("font-size: 16px; font-weight: 700; color: #00e5ff;")
         
-        sub_lbl = QLabel("Compliant with NIST SP 800-88 Rev. 1, DoD 5220.22-M | C++ Direct I/O Forensic Engine")
+        sub_lbl = QLabel("Compliant with NIST SP 800-88 Rev. 2, DoD 5220.22-M | C++ Direct I/O Forensic Engine")
         sub_lbl.setStyleSheet("font-size: 11px; color: #94a3b8;")
         header_left.addWidget(title_lbl)
         header_left.addWidget(sub_lbl)
