@@ -10,7 +10,14 @@ from typing import Generator, Optional, Callable
 from src.models.carved_file import CarvedFile
 from src.carver.raw_io import RawReader
 from src.carver.signatures import SignatureStore, FileSignature
-from src.carver.validators import ValidatorRegistry, calculate_confidence
+from src.carver.validators import (
+    ValidatorRegistry,
+    calculate_confidence,
+    find_zip_boundary,
+    find_pdf_boundary,
+    find_jpeg_boundary,
+    find_png_boundary,
+)
 from src.carver.classifier import classify
 from src.carver.native_engine import is_native_available, NativeCarvingEngine
 
@@ -21,8 +28,9 @@ class ScanJob:
     output_dir: str
     signatures: list[str]  # Target signatures or ["all"]
     sector_size: int = 512
-    read_buffer: int = 1024 * 1024  # 1 MB read buffer
-    skip_unallocated: bool = True   # Default True: skips unallocated free space for fast scanning
+    read_buffer: int = 4 * 1024 * 1024  # 4 MB read buffer for USB bus saturation
+    scan_mode: int = 0  # 0: Full Drive (100% LBAs), 1: Unallocated / Deleted Space Only, 2: Allocated Space Only
+    skip_unallocated: bool = False
 
 
 class CarvingEngine:
@@ -35,6 +43,7 @@ class CarvingEngine:
         self,
         job: ScanJob,
         progress_callback: Optional[Callable[[int, int, int], None]] = None,
+        file_found_callback: Optional[Callable[[CarvedFile], None]] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Generator[CarvedFile, None, None]:
         """
@@ -50,8 +59,10 @@ class CarvingEngine:
                     output_dir=job.output_dir,
                     signatures=job.signatures,
                     sector_size=job.sector_size,
+                    scan_mode=job.scan_mode,
                     skip_unallocated=job.skip_unallocated,
                     progress_callback=progress_callback,
+                    file_found_callback=file_found_callback,
                     cancel_check=cancel_check,
                 )
                 return
@@ -89,9 +100,10 @@ class CarvingEngine:
                     progress_callback(offset, total_size, files_found_count)
                     last_progress_emit = offset
 
-                # Fast unallocated/empty space skipping
-                if job.skip_unallocated:
-                    fast_check = reader.read_at(offset, 4096)
+                # High-speed blank/empty space skipping (all-0x00 or all-0xFF NAND flash jump)
+                check_bytes = min(65536, total_size - offset if total_size > 0 else 65536)
+                if check_bytes >= 512:
+                    fast_check = reader.read_at(offset, check_bytes)
                     if fast_check and (fast_check == b"\x00" * len(fast_check) or fast_check == b"\xff" * len(fast_check)):
                         offset += len(fast_check)
                         continue
@@ -105,6 +117,7 @@ class CarvingEngine:
                     s for s in active_sigs if header_window.startswith(s.header)
                 ]
 
+                carved_file_found = False
                 for sig in matched_sigs:
                     carved = self._extract_and_validate(
                         reader, offset, sig, output_dir, carve_id
@@ -115,9 +128,14 @@ class CarvingEngine:
                         if progress_callback:
                             progress_callback(offset, total_size, files_found_count)
                         yield carved
+                        step = max(job.sector_size, carved.size)
+                        step = ((step + job.sector_size - 1) // job.sector_size) * job.sector_size
+                        offset += step
+                        carved_file_found = True
                         break
 
-                offset += job.sector_size
+                if not carved_file_found:
+                    offset += job.sector_size
 
             # Final progress report at 100%
             if progress_callback:
@@ -142,9 +160,33 @@ class CarvingEngine:
 
         footer_found = False
         extracted_len = len(candidate_bytes)
+        name_lower = sig.name.lower()
 
-        # Truncate at footer if present
-        if sig.footer:
+        if name_lower in ("zip", "docx", "xlsx", "pptx", "archive"):
+            has_bnd, exact_len = find_zip_boundary(candidate_bytes)
+            if has_bnd:
+                extracted_len = exact_len
+                candidate_bytes = candidate_bytes[:extracted_len]
+                footer_found = True
+        elif name_lower == "pdf":
+            has_bnd, exact_len = find_pdf_boundary(candidate_bytes)
+            if has_bnd:
+                extracted_len = exact_len
+                candidate_bytes = candidate_bytes[:extracted_len]
+                footer_found = True
+        elif name_lower == "png":
+            has_bnd, exact_len = find_png_boundary(candidate_bytes)
+            if has_bnd:
+                extracted_len = exact_len
+                candidate_bytes = candidate_bytes[:extracted_len]
+                footer_found = True
+        elif name_lower in ("jpeg", "jpg"):
+            has_bnd, exact_len = find_jpeg_boundary(candidate_bytes)
+            if has_bnd:
+                extracted_len = exact_len
+                candidate_bytes = candidate_bytes[:extracted_len]
+                footer_found = True
+        elif sig.footer:
             footer_pos = candidate_bytes.find(sig.footer)
             if footer_pos != -1:
                 extracted_len = footer_pos + len(sig.footer)
@@ -183,11 +225,15 @@ class CarvingEngine:
         )
 
 
-def extract_file(source_path: str, file_meta: CarvedFile) -> bool:
+def extract_file(source_path: str, file_meta: CarvedFile, fallback_dir: Path | None = None) -> bool:
     """Extracts a specific file from the raw image and writes it to disk if not already present."""
     try:
         if file_meta.output_path and file_meta.output_path.exists() and file_meta.output_path.stat().st_size > 0:
             return True
+
+        if not file_meta.output_path:
+            dest_dir = fallback_dir or (Path.home() / "BitScan_Recovered")
+            file_meta.output_path = dest_dir / file_meta.file_name
 
         reader = RawReader(source_path, chunk_size=max(file_meta.size, 1024))
         data = reader.read_at(file_meta.source_offset, file_meta.size)

@@ -37,6 +37,7 @@ CARVER_API int Carver_AddSignature(
 );
 
 CARVER_API int Carver_SetSkipUnallocated(int skip);
+CARVER_API int Carver_SetScanMode(int mode);
 
 CARVER_API int Carver_ClearSignatures();
 

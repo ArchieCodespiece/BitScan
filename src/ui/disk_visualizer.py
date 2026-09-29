@@ -48,24 +48,49 @@ class DiskVisualizer(QWidget):
         self.update()
 
     def update_scan(self, current_offset: int, total_bytes: int, skip_unallocated: bool = True):
-        self.current_offset = current_offset
+        self.current_offset = max(0, current_offset)
+        was_zero = (self.total_bytes == 0)
         if total_bytes > 0:
             self.total_bytes = total_bytes
 
-        if self.total_bytes > 0:
-            target_idx = min(int((current_offset / self.total_bytes) * self.num_blocks), self.num_blocks - 1)
-            for i in range(self.active_block_idx, target_idx):
-                if self.blocks[i] != 3:  # Don't overwrite carved artifact markers
-                    self.blocks[i] = 1 if skip_unallocated else 2
-            self.active_block_idx = target_idx
+        if self.total_bytes > 0 and len(self.blocks) > 0:
+            ratio = max(0.0, min(float(self.current_offset) / float(self.total_bytes), 1.0))
+            target_idx = min(int(ratio * self.num_blocks), self.num_blocks - 1)
+            
+            start_i = max(0, min(self.active_block_idx, self.num_blocks - 1))
+            end_i = max(0, min(target_idx, self.num_blocks - 1))
+
+            if start_i <= end_i:
+                for i in range(start_i, end_i):
+                    if 0 <= i < len(self.blocks):
+                        if self.blocks[i] != 3:  # Don't overwrite carved artifact markers
+                            self.blocks[i] = 1 if skip_unallocated else 2
+            else:
+                for i in range(end_i, start_i):
+                    if 0 <= i < len(self.blocks):
+                        if self.blocks[i] != 3:
+                            self.blocks[i] = 1 if skip_unallocated else 2
+
+            self.active_block_idx = end_i
+
+            # If total_bytes was just registered, ensure all past carved artifacts are placed on the grid
+            if was_zero and self.carved_offsets:
+                for off in self.carved_offsets:
+                    if off >= 0:
+                        idx = min(int((off / self.total_bytes) * self.num_blocks), self.num_blocks - 1)
+                        if 0 <= idx < len(self.blocks):
+                            self.blocks[idx] = 3
+
         self.update()
 
     def add_carved_artifact(self, source_offset: int):
         self.carved_offsets.append(source_offset)
-        if self.total_bytes > 0:
-            idx = min(int((source_offset / self.total_bytes) * self.num_blocks), self.num_blocks - 1)
-            self.blocks[idx] = 3
-            self.update()
+        if self.total_bytes > 0 and len(self.blocks) > 0:
+            ratio = max(0.0, min(float(source_offset) / float(self.total_bytes), 1.0))
+            idx = min(int(ratio * self.num_blocks), self.num_blocks - 1)
+            if 0 <= idx < len(self.blocks):
+                self.blocks[idx] = 3
+                self.update()
 
     def reset(self):
         self.blocks = [0] * self.num_blocks
@@ -118,7 +143,7 @@ class DiskVisualizer(QWidget):
             x = spacing + c * (block_w + spacing)
             y = spacing + r * (block_h + spacing)
 
-            state = self.blocks[i]
+            state = self.blocks[i] if 0 <= i < len(self.blocks) else 0
             if i == self.active_block_idx and self.current_offset > 0:
                 color = active_head_color
             else:
@@ -163,7 +188,7 @@ class DiskVisualizer(QWidget):
 
         if 0 <= c < cols and 0 <= r < rows:
             idx = r * cols + c
-            if 0 <= idx < self.num_blocks and self.total_bytes > 0:
+            if 0 <= idx < len(self.blocks) and self.total_bytes > 0:
                 block_bytes = self.total_bytes / self.num_blocks
                 start_off = int(idx * block_bytes)
                 end_off = int((idx + 1) * block_bytes)
@@ -171,7 +196,7 @@ class DiskVisualizer(QWidget):
                 if idx == self.active_block_idx:
                     state_str = "Active Read-Head"
                 elif self.blocks[idx] == 3:
-                    state_str = "⭐ Artifact Carved"
+                    state_str = "Artifact Carved"
                 elif self.blocks[idx] == 1:
                     state_str = "Skipped Unallocated Space"
                 elif self.blocks[idx] == 2:

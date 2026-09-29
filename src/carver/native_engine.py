@@ -12,6 +12,7 @@ from typing import Callable, Generator, Optional
 
 from src.models.carved_file import CarvedFile, FileCategory
 from src.carver.signatures import SignatureStore, FileSignature
+from src.carver.raw_io import normalize_device_path
 
 
 # Callback function prototypes for ctypes
@@ -75,6 +76,9 @@ class NativeEngineLoader:
             dll.Carver_SetSkipUnallocated.restype = ctypes.c_int
             dll.Carver_SetSkipUnallocated.argtypes = [ctypes.c_int]
 
+            dll.Carver_SetScanMode.restype = ctypes.c_int
+            dll.Carver_SetScanMode.argtypes = [ctypes.c_int]
+
             dll.Carver_ClearSignatures.restype = ctypes.c_int
             dll.Carver_ClearSignatures.argtypes = []
 
@@ -121,17 +125,24 @@ class NativeCarvingEngine:
         output_dir: str,
         signatures: list[str],
         sector_size: int = 512,
-        skip_unallocated: bool = True,
+        scan_mode: int = 0,
+        skip_unallocated: Optional[bool] = None,
         progress_callback: Optional[Callable[[int, int, int], None]] = None,
+        file_found_callback: Optional[Callable[[CarvedFile], None]] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Generator[CarvedFile, None, None]:
         """
         Executes native C++ scan loop and yields CarvedFile objects as they are discovered.
+        Invokes file_found_callback immediately for real-time live UI telemetry.
         """
         dll = self.dll
         dll.Carver_Init()
         dll.Carver_ClearSignatures()
-        dll.Carver_SetSkipUnallocated(1 if skip_unallocated else 0)
+
+        effective_mode = scan_mode
+        if scan_mode == 0 and skip_unallocated:
+            effective_mode = 1
+        dll.Carver_SetScanMode(effective_mode)
 
         # Filter active signatures
         active_sigs = self.sig_store.signatures
@@ -212,21 +223,20 @@ class NativeCarvingEngine:
                 output_path=out_p,
             )
             discovered_files.append(carved)
+            if file_found_callback:
+                file_found_callback(carved)
 
         c_prog_cb = PROGRESS_CALLBACK_TYPE(c_progress)
         c_cancel_cb = CANCEL_CALLBACK_TYPE(c_cancel)
         c_found_cb = FILE_FOUND_CALLBACK_TYPE(c_file_found)
 
-        # Normalize source path for Windows
-        norm_source = str(source_path).strip()
-        if sys.platform == "win32" and not norm_source.startswith("\\\\.\\"):
-            if len(norm_source) == 2 and norm_source[1] == ":":
-                norm_source = rf"\\.\{norm_source}"
+        # Normalize source path for Windows and raw block devices
+        norm_source = normalize_device_path(source_path)
 
         out_path_str = str(Path(output_dir).resolve())
 
         # Launch native scan
-        dll.Carver_Scan(
+        ret = dll.Carver_Scan(
             norm_source,
             out_path_str,
             sector_size,
@@ -234,6 +244,9 @@ class NativeCarvingEngine:
             c_found_cb,
             c_cancel_cb,
         )
+
+        if ret == -1:
+            raise RuntimeError(f"C++ native engine failed to open target handle: {norm_source}")
 
         for carved in discovered_files:
             yield carved

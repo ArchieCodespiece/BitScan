@@ -9,10 +9,6 @@
 #include <string>
 #include <memory>
 #include <algorithm>
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
 
 namespace CarverNative {
 
@@ -25,10 +21,16 @@ struct NativeSig {
     std::string category;
 };
 
+enum CarverScanMode {
+    CARVER_SCAN_FULL = 0,        // 100% full raw media scan (Allocated + Unallocated + Slack Space)
+    CARVER_SCAN_UNALLOCATED = 1, // Only unallocated/free space (skips active files to carve deleted artifacts)
+    CARVER_SCAN_ALLOCATED = 2    // Only active allocated files (for steganography / embedded payloads)
+};
+
 // Global state for configured engine
 static std::vector<NativeSig> g_signatures;
 static std::vector<std::vector<size_t>> g_prefix_table(65536);
-static int g_skip_unallocated = 1; // Default: skip unallocated spaces
+static int g_scan_mode = CARVER_SCAN_FULL; // Default: 100% full exhaustive scan
 static std::unique_ptr<CryptoHasher> g_hasher = nullptr;
 
 // Helper to write candidate file bytes to output path
@@ -121,8 +123,14 @@ CARVER_API int Carver_AddSignature(
     return 1;
 }
 
+CARVER_API int Carver_SetScanMode(int mode) {
+    g_scan_mode = mode;
+    return 1;
+}
+
 CARVER_API int Carver_SetSkipUnallocated(int skip) {
-    g_skip_unallocated = skip;
+    // Backward compatibility: 1 -> CARVER_SCAN_UNALLOCATED, 0 -> CARVER_SCAN_FULL
+    g_scan_mode = (skip != 0) ? CARVER_SCAN_UNALLOCATED : CARVER_SCAN_FULL;
     return 1;
 }
 
@@ -164,11 +172,18 @@ CARVER_API int Carver_Scan(
     LARGE_INTEGER fileSize;
     fileSize.QuadPart = 0;
     if (!GetFileSizeEx(hSource, &fileSize) || fileSize.QuadPart <= 0) {
-        // Fallback: query IOCTL_DISK_GET_DRIVE_GEOMETRY_EX for physical drives
-        DISK_GEOMETRY_EX diskGeom;
+        // Method 1: query IOCTL_DISK_GET_LENGTH_INFO (Works on partitions, volumes, and raw disks)
+        GET_LENGTH_INFORMATION lengthInfo;
         DWORD bytesRet = 0;
-        if (DeviceIoControl(hSource, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, NULL, 0, &diskGeom, sizeof(diskGeom), &bytesRet, NULL)) {
-            fileSize = diskGeom.DiskSize;
+        if (DeviceIoControl(hSource, IOCTL_DISK_GET_LENGTH_INFO, NULL, 0, &lengthInfo, sizeof(lengthInfo), &bytesRet, NULL)) {
+            fileSize = lengthInfo.Length;
+        } else {
+            // Method 2: query IOCTL_DISK_GET_DRIVE_GEOMETRY_EX with full buffer to avoid ERROR_INSUFFICIENT_BUFFER
+            uint8_t geomBuffer[256];
+            if (DeviceIoControl(hSource, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, NULL, 0, geomBuffer, sizeof(geomBuffer), &bytesRet, NULL)) {
+                DISK_GEOMETRY_EX* pGeom = reinterpret_cast<DISK_GEOMETRY_EX*>(geomBuffer);
+                fileSize = pGeom->DiskSize;
+            }
         }
     }
 
@@ -176,7 +191,7 @@ CARVER_API int Carver_Scan(
 
     // Initialize filesystem allocation bitmap if requested
     FilesystemBitmap fs_bitmap;
-    if (g_skip_unallocated) {
+    if (g_scan_mode != CARVER_SCAN_FULL) {
         fs_bitmap.init_from_device(hSource, source_path);
     }
 
@@ -196,23 +211,76 @@ CARVER_API int Carver_Scan(
 
     auto read_media_at = [&](int64_t target_offset, uint8_t* dest, size_t req_len) -> size_t {
         if (total_size > 0 && target_offset >= total_size) return 0;
+        if (req_len == 0) return 0;
+
+        const size_t ALIGN = 512;
+        int64_t aligned_start = (target_offset / ALIGN) * ALIGN;
+        size_t lead_offset = static_cast<size_t>(target_offset - aligned_start);
+
+        int64_t target_end = target_offset + static_cast<int64_t>(req_len);
+        if (total_size > 0 && target_end > total_size) {
+            target_end = total_size;
+        }
+        if (target_end <= target_offset) return 0;
+        size_t actual_req = static_cast<size_t>(target_end - target_offset);
+
+        int64_t aligned_end = ((target_end + ALIGN - 1) / ALIGN) * ALIGN;
+        if (total_size > 0 && aligned_end > total_size) {
+            aligned_end = total_size;
+        }
+
+        size_t bytes_to_read = static_cast<size_t>(aligned_end - aligned_start);
+        bytes_to_read = (bytes_to_read / ALIGN) * ALIGN;
+        if (bytes_to_read == 0) return 0;
 
         LARGE_INTEGER li;
-        li.QuadPart = target_offset;
+        li.QuadPart = aligned_start;
         if (!SetFilePointerEx(hSource, li, NULL, FILE_BEGIN)) {
             return 0;
         }
 
-        DWORD bytesRead = 0;
-        DWORD toRead = static_cast<DWORD>(req_len);
-        if (total_size > 0 && target_offset + toRead > total_size) {
-            toRead = static_cast<DWORD>(total_size - target_offset);
+        const size_t IO_CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB max USB transfer size
+
+        // Fast path: lead_offset == 0 and actual_req is aligned to ALIGN
+        if (lead_offset == 0 && (actual_req % ALIGN) == 0 && bytes_to_read == actual_req) {
+            size_t total_done = 0;
+            while (total_done < bytes_to_read) {
+                size_t step = std::min(bytes_to_read - total_done, IO_CHUNK_SIZE);
+                DWORD bytesRead = 0;
+                if (!ReadFile(hSource, dest + total_done, static_cast<DWORD>(step), &bytesRead, NULL) || bytesRead == 0) {
+                    break;
+                }
+                total_done += bytesRead;
+                if (bytesRead < step) break;
+            }
+            return total_done;
         }
 
-        if (ReadFile(hSource, dest, toRead, &bytesRead, NULL)) {
-            return bytesRead;
+        // Generic path: read in 2MB chunks using a small reusable buffer
+        std::vector<uint8_t> chunk_buf(IO_CHUNK_SIZE);
+        size_t total_dest_copied = 0;
+        size_t aligned_read_done = 0;
+
+        while (aligned_read_done < bytes_to_read && total_dest_copied < actual_req) {
+            size_t step = std::min(bytes_to_read - aligned_read_done, IO_CHUNK_SIZE);
+            DWORD bytesRead = 0;
+            if (!ReadFile(hSource, chunk_buf.data(), static_cast<DWORD>(step), &bytesRead, NULL) || bytesRead == 0) {
+                break;
+            }
+
+            size_t chunk_lead = (aligned_read_done == 0) ? lead_offset : 0;
+            if (bytesRead > chunk_lead) {
+                size_t avail = bytesRead - chunk_lead;
+                size_t copy_now = std::min(avail, actual_req - total_dest_copied);
+                memcpy(dest + total_dest_copied, chunk_buf.data() + chunk_lead, copy_now);
+                total_dest_copied += copy_now;
+            }
+
+            aligned_read_done += bytesRead;
+            if (bytesRead < step) break;
         }
-        return 0;
+
+        return total_dest_copied;
     };
 
     while (true) {
@@ -225,21 +293,34 @@ CARVER_API int Carver_Scan(
             break;
         }
 
-        // Progress emission (every 512 KB or at start)
-        if (progress_cb && (offset - last_progress_emit >= 512 * 1024 || offset == 0)) {
+        // Progress emission (every 4 MB or at start to avoid throttling Python thread)
+        if (progress_cb && (offset - last_progress_emit >= 4 * 1024 * 1024 || offset == 0)) {
             progress_cb(offset, total_size, files_found_count);
             last_progress_emit = offset;
         }
 
-        // 1. Filesystem cluster bitmap skipping (if active and unallocated)
-        if (g_skip_unallocated && fs_bitmap.has_volume_bitmap()) {
-            if (!fs_bitmap.is_offset_allocated(offset)) {
-                int64_t next_alloc = fs_bitmap.get_next_allocated_offset(offset, total_size);
-                if (next_alloc > offset) {
-                    offset = next_alloc;
-                    continue;
+        // 1. Filesystem cluster bitmap skipping based on selected forensic ScanMode
+        if (fs_bitmap.has_volume_bitmap()) {
+            if (g_scan_mode == CARVER_SCAN_UNALLOCATED) {
+                // Recovering deleted files: if currently in an ALLOCATED cluster (existing active file), skip it to find deleted files!
+                if (fs_bitmap.is_offset_allocated(offset)) {
+                    int64_t next_unalloc = fs_bitmap.get_next_unallocated_offset(offset, total_size);
+                    if (next_unalloc > offset) {
+                        offset = next_unalloc;
+                        continue;
+                    }
+                }
+            } else if (g_scan_mode == CARVER_SCAN_ALLOCATED) {
+                // Analyzing active files: if currently in unallocated space, skip to next allocated cluster
+                if (!fs_bitmap.is_offset_allocated(offset)) {
+                    int64_t next_alloc = fs_bitmap.get_next_allocated_offset(offset, total_size);
+                    if (next_alloc > offset) {
+                        offset = next_alloc;
+                        continue;
+                    }
                 }
             }
+            // CARVER_SCAN_FULL: No cluster skipping - exhaustively scans 100% of sectors!
         }
 
         // Ensure chunk buffer contains data for current offset
@@ -265,13 +346,16 @@ CARVER_API int Carver_Scan(
 
         const uint8_t* sector_ptr = chunk_buffer.data() + local_offset;
 
-        // 2. High-speed empty/unallocated block skipping (zeroed or wiped space)
-        if (g_skip_unallocated) {
-            // Check if upcoming 4096-byte cluster or sector is all 0x00 or 0xFF
-            size_t check_len = std::min(bytes_available, static_cast<size_t>(4096));
-            if (check_len >= 512 && FilesystemBitmap::is_empty_or_unallocated_block(sector_ptr, check_len)) {
-                // Advance through empty unallocated region
+        // 2. High-speed multi-word 64-bit empty/blank flash block skipping (zeroed or 0xFF wiped NAND)
+        // Active in all modes because a block containing only 0x00 or only 0xFF cannot contain any file header.
+        {
+            size_t check_len = std::min(bytes_available, static_cast<size_t>(256 * 1024)); // Check up to 256 KB block
+            check_len = (check_len / sector_size) * sector_size;
+            if (check_len >= static_cast<size_t>(sector_size) && FilesystemBitmap::is_empty_or_unallocated_block(sector_ptr, check_len)) {
                 offset += check_len;
+                continue;
+            } else if (bytes_available >= 65536 && FilesystemBitmap::is_empty_or_unallocated_block(sector_ptr, 65536)) {
+                offset += 65536;
                 continue;
             }
         }
@@ -280,8 +364,8 @@ CARVER_API int Carver_Scan(
         uint16_t prefix = (static_cast<uint16_t>(sector_ptr[0]) << 8) | sector_ptr[1];
         const auto& candidate_sig_indices = g_prefix_table[prefix];
 
+        bool matched = false;
         if (!candidate_sig_indices.empty()) {
-            bool matched = false;
             for (size_t sig_idx : candidate_sig_indices) {
                 const auto& sig = g_signatures[sig_idx];
                 if (bytes_available < sig.header.size()) {
@@ -293,8 +377,15 @@ CARVER_API int Carver_Scan(
                     size_t max_read_size = static_cast<size_t>(std::min(sig.max_size, (int64_t)(total_size > 0 ? (total_size - offset) : sig.max_size)));
                     if (max_read_size == 0) max_read_size = static_cast<size_t>(sig.max_size);
 
-                    std::vector<uint8_t> candidate_bytes(max_read_size);
-                    size_t actual_read = read_media_at(offset, candidate_bytes.data(), max_read_size);
+                    std::string lower_sig = sig.name;
+                    std::transform(lower_sig.begin(), lower_sig.end(), lower_sig.begin(), ::tolower);
+
+                    // Progressive window reading: start with a fast 4 MB window (covers 95%+ of files on USB)
+                    size_t cur_window = std::min(static_cast<size_t>(4 * 1024 * 1024), max_read_size);
+                    if (cur_window < sig.header.size()) cur_window = max_read_size;
+
+                    std::vector<uint8_t> candidate_bytes(cur_window);
+                    size_t actual_read = read_media_at(offset, candidate_bytes.data(), cur_window);
                     if (actual_read < sig.header.size()) {
                         continue;
                     }
@@ -303,18 +394,69 @@ CARVER_API int Carver_Scan(
                     bool footer_found = false;
                     size_t extracted_len = actual_read;
 
-                    if (!sig.footer.empty()) {
-                        const uint8_t* footer_ptr = find_subsequence(
-                            candidate_bytes.data(),
-                            actual_read,
-                            sig.footer.data(),
-                            sig.footer.size()
-                        );
-                        if (footer_ptr) {
-                            extracted_len = (footer_ptr - candidate_bytes.data()) + sig.footer.size();
-                            candidate_bytes.resize(extracted_len);
-                            footer_found = true;
+                    // Dedicated format boundary sizers
+                    auto try_locate_boundary = [&](const uint8_t* buf, size_t buf_len, size_t& out_len, bool& out_footer) -> bool {
+                        if (lower_sig == "zip" || lower_sig == "docx" || lower_sig == "xlsx") {
+                            if (FileValidator::find_zip_boundary(buf, buf_len, out_len)) {
+                                out_footer = true;
+                                return true;
+                            }
+                        } else if (lower_sig == "pdf") {
+                            if (FileValidator::find_pdf_boundary(buf, buf_len, out_len)) {
+                                out_footer = true;
+                                return true;
+                            }
+                        } else if (lower_sig == "png") {
+                            if (FileValidator::find_png_boundary(buf, buf_len, out_len)) {
+                                out_footer = true;
+                                return true;
+                            }
+                        } else if (lower_sig == "jpeg" || lower_sig == "jpg") {
+                            if (FileValidator::find_jpeg_boundary(buf, buf_len, out_len)) {
+                                out_footer = true;
+                                return true;
+                            }
+                        } else if (lower_sig == "gif") {
+                            for (size_t i = 13; i < buf_len; ++i) {
+                                if (buf[i] == 0x3B) {
+                                    out_len = i + 1;
+                                    out_footer = true;
+                                    return true;
+                                }
+                            }
+                        } else if (!sig.footer.empty()) {
+                            const uint8_t* footer_ptr = find_subsequence(buf, buf_len, sig.footer.data(), sig.footer.size());
+                            if (footer_ptr) {
+                                out_len = (footer_ptr - buf) + sig.footer.size();
+                                out_footer = true;
+                                return true;
+                            }
                         }
+                        return false;
+                    };
+
+                    bool boundary_found = try_locate_boundary(candidate_bytes.data(), actual_read, extracted_len, footer_found);
+
+                    // If boundary not found in initial window and more data exists, expand window progressively
+                    while (!boundary_found && actual_read < max_read_size) {
+                        size_t next_window = std::min(actual_read * 4, max_read_size);
+                        if (next_window <= actual_read) break;
+
+                        size_t additional_needed = next_window - actual_read;
+                        std::vector<uint8_t> add_buf(additional_needed);
+                        size_t add_read = read_media_at(offset + actual_read, add_buf.data(), additional_needed);
+                        if (add_read == 0) break;
+
+                        candidate_bytes.insert(candidate_bytes.end(), add_buf.begin(), add_buf.begin() + add_read);
+                        actual_read += add_read;
+
+                        boundary_found = try_locate_boundary(candidate_bytes.data(), actual_read, extracted_len, footer_found);
+                    }
+
+                    if (boundary_found) {
+                        candidate_bytes.resize(extracted_len);
+                    } else {
+                        extracted_len = actual_read;
                     }
 
                     // Structural validation
@@ -355,10 +497,19 @@ CARVER_API int Carver_Scan(
                         if (progress_cb) {
                             progress_cb(offset, total_size, files_found_count);
                         }
+
+                        // Advance past the carved file, aligned to sector_size
+                        size_t step = std::max(static_cast<size_t>(sector_size), extracted_len);
+                        step = ((step + sector_size - 1) / sector_size) * sector_size;
+                        offset += step;
                         break;
                     }
                 }
             }
+        }
+
+        if (matched) {
+            continue;
         }
 
         offset += sector_size;

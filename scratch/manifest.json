@@ -1,0 +1,8 @@
+{
+  "forensic_tool": "BitScan - Forensic Data Sanitization & Carving Suite",
+  "version": "1.0.0",
+  "scan_timestamp": "2026-09-27T10:05:02.460110",
+  "source_media": "\\\\.\\F:",
+  "total_recovered_files": 0,
+  "files": []
+}
