@@ -3,8 +3,6 @@ Physical Drive Sanitizer UI Component
 NIST SP 800-88 Rev. 2 & DoD 5220.22-M Whole-Disk Hardware Sanitization Engine.
 Safely detects raw physical drives and removable USB media with safety interlocks.
 """
-import os
-import sys
 import time
 from pathlib import Path
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -15,6 +13,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QFrame, QTextEdit
 )
 
+from src.sanitizer.native import sanitize_drive_native
 from src.utils.device_scanner import list_storage_devices, StorageDevice
 
 
@@ -33,73 +32,50 @@ class DriveEraseWorker(QThread):
         self._is_cancelled = False
 
     def run(self):
-        start_time = time.time()
-        chunk_size = 1024 * 1024  # 1 MB chunk
-        zero_chunk = b"\x00" * chunk_size
-        ones_chunk = b"\xff" * chunk_size
-        written_bytes = 0
+        started = time.perf_counter()
+        self.status_updated.emit(
+            f"Initializing native C++ raw I/O on {self.target_path}...", "#00e5ff"
+        )
+        self.status_updated.emit(f"Executing {self.standard} sanitization pass...", "#f59e0b")
 
-        self.status_updated.emit(f"Initializing direct raw I/O handle on {self.target_path}...", "#00e5ff")
+        last_current = 0
+        last_time = started
+
+        def on_progress(current: int, total: int):
+            nonlocal last_current, last_time
+            now = time.perf_counter()
+            elapsed = max(now - started, 0.001)
+            delta_time = max(now - last_time, 0.001)
+            speed_mb_s = max(0, current - last_current) / (1024 * 1024 * delta_time)
+            remaining = max(total - current, 0)
+            eta_sec = remaining / (speed_mb_s * 1024 * 1024) if speed_mb_s > 0.1 else 0
+            pct = min(100, int(current * 100 / total)) if total > 0 else 0
+            self.progress_updated.emit(pct, current, total)
+            self.telemetry_updated.emit(speed_mb_s, elapsed, eta_sec)
+            last_current = current
+            last_time = now
 
         try:
-            # Open raw physical drive or test file
-            # On Windows, raw physical drive writes require admin access
-            is_win_raw = sys.platform == "win32" and self.target_path.startswith("\\\\.\\")
-            mode = "r+b" if os.path.exists(self.target_path) or is_win_raw else "w+b"
-            
-            with open(self.target_path, mode, buffering=0 if is_win_raw else -1) as f:
-                self.status_updated.emit(f"Executing {self.standard} sanitization pass...", "#f59e0b")
-
-                while written_bytes < self.total_bytes:
-                    if self._is_cancelled:
-                        self.status_updated.emit("Sanitization aborted by operator.", "#ef4444")
-                        self.finished.emit(False, "Drive sanitization was cancelled.")
-                        return
-
-                    to_write = min(chunk_size, self.total_bytes - written_bytes)
-                    pattern = zero_chunk[:to_write]
-                    if "DoD" in self.standard and (written_bytes // chunk_size) % 2 == 1:
-                        pattern = ones_chunk[:to_write]
-
-                    f.write(pattern)
-                    written_bytes += to_write
-
-                    now = time.time()
-                    elapsed = max(now - start_time, 0.001)
-                    speed_mb_s = (written_bytes / (1024 * 1024)) / elapsed
-                    remaining_bytes = max(self.total_bytes - written_bytes, 0)
-                    eta_sec = (remaining_bytes / (speed_mb_s * 1024 * 1024)) if speed_mb_s > 0.1 else 0
-
-                    pct = int((written_bytes / self.total_bytes) * 100)
-                    self.progress_updated.emit(pct, written_bytes, self.total_bytes)
-                    self.telemetry_updated.emit(speed_mb_s, elapsed, eta_sec)
-
-                f.flush()
-
-            if self.verify:
-                self.status_updated.emit("Performing cryptographic zero-entropy audit pass...", "#10b981")
-                time.sleep(0.5)
-
-            total_elapsed = time.time() - start_time
-            msg = (
-                f"Successfully sanitized {written_bytes / (1024**3):.2f} GB on {self.target_path} "
-                f"in {total_elapsed:.1f}s. All sectors cryptographically destroyed under {self.standard}."
+            success, message = sanitize_drive_native(
+                self.target_path,
+                self.total_bytes,
+                self.standard,
+                self.verify,
+                on_progress,
+                lambda: self._is_cancelled,
             )
-            self.status_updated.emit("Sanitization complete. Drive verified zero-state.", "#10b981")
-            self.finished.emit(True, msg)
-
-        except PermissionError:
-            err = (
-                f"Access Denied on {self.target_path}.\n\n"
-                "Raw Physical Drive access on Windows requires Administrator privileges. "
-                "Please restart BitScan as Administrator to wipe physical drives."
-            )
-            self.status_updated.emit("Access Denied: Requires Administrator privileges.", "#ef4444")
-            self.finished.emit(False, err)
-        except Exception as e:
-            err = f"Sanitization Error on {self.target_path}: {str(e)}"
-            self.status_updated.emit(f"Failed: {str(e)}", "#ef4444")
-            self.finished.emit(False, err)
+            if success:
+                self.status_updated.emit("Sanitization complete. Native operation finished.", "#10b981")
+                self.finished.emit(True, message)
+            else:
+                color = "#ef4444"
+                status = "Sanitization aborted by operator." if self._is_cancelled else f"Failed: {message}"
+                self.status_updated.emit(status, color)
+                self.finished.emit(False, message)
+        except Exception as exc:
+            message = f"Native sanitization error: {exc}"
+            self.status_updated.emit(message, "#ef4444")
+            self.finished.emit(False, message)
 
     def cancel(self):
         self._is_cancelled = True

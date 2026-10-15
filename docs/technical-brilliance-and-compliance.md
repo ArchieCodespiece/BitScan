@@ -2,8 +2,8 @@
 
 A fact-based reference of the engineering decisions and standards BitScan implements.
 Every claim below is traceable to code in `src/`. Items are tiered honestly:
-**Implemented** (in code, verifiable), **Aligned** (follows the standard's techniques),
-**Planned** (UI present, engine not yet implemented).
+**Implemented** (present in code), **Aligned** (uses related techniques without claiming certification),
+or **Planned** (not implemented).
 
 ---
 
@@ -11,29 +11,26 @@ Every claim below is traceable to code in `src/`. Items are tiered honestly:
 
 ### 1.1 Byte-Verifiable Erasure (the core differentiator)
 
-Most shredders overwrite blindly and report "done." BitScan overwrites and then
-**proves** it:
+The native backend performs readback checks and records their outcome:
 
-- Every random pass uses a **deterministic, CSPRNG-seeded PRNG stream**
-  (`src/shredder/engine.py::_make_sampler`). The seed is drawn from `os.urandom(32)`
-  at pass start, so the exact written stream can be **regenerated** and
-  **byte-compared against a readback** of the file
-  (`_verify_extent`). Erasure is *auditable*, not just claimed.
-- Fixed-pattern passes (DoD zeros/ones) are trivially byte-verifiable for the same reason.
-- Each file captures **SHA-256 before/after** (FIPS 180-4) as independent evidence.
-- The result carries a `verified` flag; the UI distinguishes
-  "Destroyed, Verified & Unlinked" from unverified outcomes — never conflating them.
+- The C++ shredder uses OS-backed cryptographic random bytes and compares each
+  written chunk with immediate readback; fixed-pattern passes are checked the
+  same way. Python retains the audit and result orchestration.
+- Each file captures **SHA-256 before/after** through OpenSSL (FIPS 180-4).
+- The result carries a `verified` flag; this records successful logical readback,
+  not proof that every physical copy or remapped sector was erased.
 
-**Why this matters:** the write can be independently re-verified from the audit trail,
-satisfying problem.md's "verify erasure success" requirement with cryptographic evidence
-instead of a boolean from a write syscall.
+The audit chain records each pass and its verification outcome. It does not contain
+the overwritten byte stream and should not be described as independent proof of
+physical erasure.
 
 ### 1.2 Tamper-Evident, Hash-Chained Audit Trail
 
 `src/shredder/audit.py` implements an append-only **hash chain**:
 
-- Every event (session start, per-file begin, **per pass** complete, slack wipe,
-  metadata scrub, file complete/failed, finalize) is a JSONL record.
+- Events include session start, per-file begin, **per pass** complete, metadata
+  boundary note, file complete/failed, and finalize. The current C++ backend does
+  not emit a slack-wipe event because file slack is not overwritten.
 - Each record's `hash` is `SHA-256` of the **canonicalized** record
   (sorted keys, compact separators, UTF-8 — byte-exact across platforms) and its
   `prev_hash` links to the previous record's hash. **Any single-byte edit anywhere
@@ -62,36 +59,31 @@ Plus a rolling `audit.log`. The carver module emits the same trio shape
 (`src/carver/report.py`), so **all modules produce a consistent evidence format** —
 a unified reporting surface across the whole suite (problem.md deliverable).
 
-### 1.4 Cluster-Slack Sanitization
+### 1.4 Filesystem Slack and Metadata Boundary
 
-Logical file size is not physical extent. BitSan extends every overwrite from the
-logical EOF to the **filesystem allocation boundary** (`st_blocks * 512`,
-`engine.py` slack wipe), so the cluster tail — the classic "recoverable remnant"
-that basic shredders leave behind — is overwritten with a fresh CSPRNG stream and
-**independently verified**. The verified slack byte range is recorded in the audit
-trail (`slack` event with start/end/verified).
+The C++ file shredder overwrites the logical file length, truncates it, and unlinks
+it. It does not overwrite filesystem allocation slack, journals, snapshots, or
+other metadata. The audit/result note documents this limitation; no slack wipe is
+claimed.
 
 ### 1.5 Complete I/O Discipline (no stale-cache escape hatches)
 
-The engine follows the full durability sequence for each pass:
+The native backend follows this logical-file sequence:
 
-1. `write` → 2. `flush()` → 3. `os.fsync(file)` — data physically on media before readback.
-4. After unlink: `fsync` of the **parent directory** (dir-fd open) — the directory
-   entry removal itself is durable, not merely cached.
-5. `ftruncate(fd, 0)` **before** unlink — clusters are returned to the filesystem
-   only after they are overwritten, so no window exists where freed-but-unwritten
-   clusters are re-allocable.
+1. Write each chunk and flush the target handle.
+2. Read the same chunk back and compare it with the generated pattern.
+3. After the final pass, hash the overwritten logical extent, truncate to zero,
+  flush, close/unlink as supported by the operating system.
+
+The backend does not claim a parent-directory durability flush or physical-media
+verification beyond the operating system's logical readback.
 
 ### 1.6 Best-Effort Metadata Scrubbing — With Honest Boundaries
 
-After verification, before unlink:
-
-- Timestamps zeroed (`utime` → epoch), directory-entry name churned **3×** through
-  random names (defeats name-based history correlation), then unlinked.
-- The audit trail **explicitly records** what user-space safe file I/O cannot reach
-  (MFT record bytes, `$LogFile`, USN journal, xattrs) instead of silently claiming
-  full metadata destruction. For a forensic-grade tool, *documented boundaries* are
-  a strength: auditors are told exactly what the guarantee covers.
+After verification, the C++ backend truncates and unlinks the file. It does not
+rename the entry or change timestamps. Filesystem journals, MFT records, extended
+attributes, snapshots, and other metadata remain outside the operation's guarantee;
+the audit records this boundary.
 
 ### 1.7 Media-Aware Sanitization (Physics-First Design)
 
@@ -112,24 +104,22 @@ After verification, before unlink:
 
 | Method | Standard | Passes | Verifiable |
 |---|---|---|---|
-| NIST (default) | NIST SP 800-88 Rev 1 — Clear | 1 (pseudo-random) | ✅ byte-level |
-| DoD | DoD 5220.22-M | 3 (0x00 → 0xFF → random) | ✅ byte-level |
-| BitScan CES | Original "Chaotic Entropy Shift" (logistic map, r = 3.999) | 3 (dynamic) | ⚠️ hash-only, flagged experimental |
+| File shred NIST option | Single CSPRNG pass | 1 | ✅ per-chunk logical readback |
+| File shred DoD option | 0x00 → 0xFF → CSPRNG | 3 | ✅ per-chunk logical readback |
+| Drive zero-fill option | Single zero-fill pass | 1 | Optional logical readback |
+| Drive DoD/random options | Three legacy passes / single CSPRNG pass | 3 / 1 | Optional logical readback |
 
-The engine's docstring documents the deliberate trade-off: deterministic PRNG
-streams sacrifice pattern secrecy to buy readback verifiability — and cites why
-that trade is safe (NIST Clear permits fixed patterns; irrecoverability of an
-overwritten sector does not depend on pattern secrecy).
+These are logical overwrite modes, not certification of conformance or a guarantee
+that flash wear-leveling, remapped sectors, or inaccessible device areas were erased.
 
 ### 1.9 Robust Batch Architecture
 
 - Shredding runs on a **QThread worker** with signal/slot progress — the UI never
-  blocks; the engine is pure-stdlib and fully testable headless.
+  blocks; the C++ engine is called through a small Python ctypes adapter.
 - **Per-file error isolation**: one failing file records `file_failed` and the batch
   continues; success/failure counts feed the finalize record and summary dialog.
-- Edge cases handled: zero-size files (empty-hash evidence), missing targets,
-  read-only files (best-effort chmod), per-row media metadata carried on table
-  items for the worker.
+- The native engine rejects non-regular files and multi-link files; failures are
+  returned to the Python audit/report workflow.
 
 ### 1.10 Carving Module (complementary evidence side)
 
@@ -144,9 +134,9 @@ overwritten sector does not depend on pattern secrecy).
 ### 1.11 Security & Safety Posture
 
 - **Offline tool, no network I/O, no telemetry, no secrets** anywhere in `src/`.
-- **No raw-write capability in any implemented module.** The only module designed to
-  write to raw block devices (Drive Sanitizer) is a UI mockup with **no engine
-  attached** — the destructive surface is deliberately not yet in the codebase.
+- **Raw writes are isolated in the native sanitizer module.** File shredding and
+  selected whole-device overwrite modes execute in C++; mounted/system-device
+  checks and an exact target-path confirmation are enforced by the native layer.
 - Destructive actions require an explicit blocking confirmation dialog that states
   irreversibility and (on flash) the physical-guarantee limitation.
 - Audit files are written under the user's home (`~/.bitscan/audit/`), append-only,
@@ -160,8 +150,8 @@ overwritten sector does not depend on pattern secrecy).
 
 | Standard | What BitScan implements | Evidence |
 |---|---|---|
-| **NIST SP 800-88 Rev 1 — Clear** | Default shred method: single-pass pseudo-random overwrite + synchronous cache flush (fsync) + verified readback | `engine.py` `ShredMethod.NIST` |
-| **DoD 5220.22-M** | 3-pass legacy wipe: binary zeros → binary ones → random, each byte-verified | `engine.py` `ShredMethod.DOD` |
+| **NIST SP 800-88 — Clear technique** | Single-pass CSPRNG file overwrite and a separate whole-device zero-fill option, with readback verification | `src/sanitizer/cpp/sanitizer.cpp` |
+| **DoD 5220.22-M legacy pattern** | Three-pass zero → ones → CSPRNG overwrite with per-chunk verification | `src/sanitizer/cpp/sanitizer.cpp` |
 | **FIPS 180-4 (SHA-256)** | SHA-256 used for per-file evidence hashes and the entire audit hash chain | `engine.py`, `audit.py` |
 | **NIST SP 800-86 (forensic principles, aligned)** | Read-only source ingestion, SHA-256 evidence manifests, tamper-evident event logs with chain-of-custody metadata for all recovered artifacts | `carver/raw_io.py`, `carver/report.py` |
 
@@ -172,28 +162,26 @@ overwritten sector does not depend on pattern secrecy).
 | **ISO/IEC 27001 A.8.10 (Data Sanitization)** | Provides the sanitization capability + verifiable, auditable erasure records that satisfy the control's evidence expectations |
 | **ISO/IEC 27040 (Storage Data Deletion)** | Implements the standard's *overwrite* technique for file-level media with verification, and honestly scopes what file-level overwrite does and does not guarantee on flash |
 | **GDPR Art. 17 (Right to Erasure) / CCPA right to deletion** | Provides the operational tooling + proof artifact (erasure certificate package) an organization needs to *demonstrate* erasure was performed |
-| **NIST SP 800-88 Rev 1 (Purge, techniques)** | Overwrite-with-verification as the logical Purge step; hardware Purge methods (below) are the planned Drive Sanitizer scope |
+| **NIST SP 800-88 (logical overwrite technique)** | Logical overwrites with optional readback; this is not ATA/NVMe firmware sanitization or a guarantee of physical erasure |
 
-### 2.3 Planned — Drive Sanitizer Tab (UI present, engine not yet implemented)
+### 2.3 Implemented / Planned — Drive Sanitizer
 
-The Drive Sanitizer tab (`main_window.build_eraser_tab`) defines the intended scope.
-**None of this is implemented yet** — the tab is a static mockup and the erase
-button is not wired to any engine:
+The Drive Sanitizer UI is wired to the C++ backend for the following logical
+overwrite modes. Hardware firmware sanitization remains out of scope:
 
-| Intended capability | Standard addressed |
+| Capability | Status |
 |---|---|
-| Full-drive NIST Clear (single-pass zero + verification) | NIST SP 800-88 Rev 1 — Clear (block level) |
-| 3-pass Purge overwrite | NIST SP 800-88 Rev 1 — Purge / DoD 5220.22-M (block level) |
-| ATA Secure Erase / NVMe Format (firmware command) | NIST SP 800-88 Rev 1 — Purge (recommended for SSD/flash) |
-| Cryptographic Erase (key destruction) | NIST SP 800-88 Rev 1 — Purge; supports FIPS 197 AES workflows on encrypted volumes |
-| 100% cryptographic verification pass (SHA-256 entropy audit) | Verifiable erasure at drive level |
-| Tamper-resistant erasure certificate (PDF + signed JSON) | Auditable compliance evidence |
+| Whole-device zero fill with optional readback | Implemented |
+| Three-pass zero/ones/CSPRNG overwrite with optional readback | Implemented |
+| Single-pass CSPRNG overwrite with optional readback | Implemented |
+| Quick leading/trailing partition metadata zeroing | Implemented; not a full-device wipe |
+| ATA Secure Erase / NVMe Format or Sanitize | Planned; not implemented |
+| Cryptographic Erase or signed device certificate | Planned; not implemented |
 
-**Guardrails that must exist before this engine ships** (design commitment):
-block-device identity re-verification (model + size + serial at confirm time),
-system-disk rejection (mounted `/`, `/boot`, `C:\`), and type-to-confirm
-destructive target name. File-level module (Tab 2) intentionally remains
-safe-by-construction: regular-file I/O only.
+The C++ backend requires the selected capacity to match the opened target and
+rejects mounted/system devices where the platform identity checks can establish
+that relationship. The UI confirmation remains required. Device firmware,
+flash wear-leveling, remapped sectors, and inaccessible areas are not covered.
 
 ---
 
@@ -225,4 +213,4 @@ safe-by-construction: regular-file I/O only.
   shredding itself is fully portable.
 - **No automated test suite committed yet** for the shredder engine (engine is
   headless-testable by design).
-- **Drive Sanitizer is a mockup** — presented here as planned scope only.
+- **Drive Sanitizer performs logical overwrites only**; hardware ATA/NVMe sanitize is not implemented.
