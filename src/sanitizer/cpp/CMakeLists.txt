@@ -14,6 +14,13 @@ set_target_properties(bitscan_sanitizer PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/bin"
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/bin"
 )
+foreach(config DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+    set_target_properties(bitscan_sanitizer PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY_${config} "${CMAKE_CURRENT_SOURCE_DIR}/bin"
+        LIBRARY_OUTPUT_DIRECTORY_${config} "${CMAKE_CURRENT_SOURCE_DIR}/bin"
+        ARCHIVE_OUTPUT_DIRECTORY_${config} "${CMAKE_CURRENT_SOURCE_DIR}/bin"
+    )
+endforeach()
 if(MSVC)
     target_compile_options(bitscan_sanitizer PRIVATE /W4 /permissive-)
 else()

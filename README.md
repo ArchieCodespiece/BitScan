@@ -6,6 +6,7 @@ BitScan is a prototype desktop application for forensic file recovery, secure fi
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/C%2B%2B-C%2B%2B17-00599C?style=flat-square&logo=cplusplus&logoColor=white" alt="C++17 native sanitizer backend">
   <img src="https://img.shields.io/badge/PyQt6-Desktop%20UI-brightgreen?style=flat-square&logo=qt" alt="PyQt6">
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Windows and Linux">
   <img src="https://img.shields.io/badge/Status-Prototype-orange?style=flat-square" alt="Prototype">
@@ -87,12 +88,12 @@ A matching hash can establish that the compared data matches the recorded digest
 
 ### 7. 🖥️ Desktop Interface and Background Processing
 
-- Python-based application orchestration.
+- Python-based application orchestration with a native C++17 sanitizer backend.
 - PyQt6 desktop interface.
 - Background workers for long-running operations.
 - Separate workflows for recovery, sanitization, verification, and reporting.
 
-PyQt6 uses the Qt framework, which is implemented in C++. This does not imply that BitScan's own forensic algorithms are implemented in C++; any native C++ engine should be documented only if the project actually integrates one.
+The carver and most application workflows remain Python; file shredding and selected drive-overwrite operations are delegated to the native C++ sanitizer library.
 
 ## 🏗️ Technical Architecture
 
@@ -160,13 +161,15 @@ Evaluate recovery, shredding, and free-space sanitization across different files
 - CMake 3.16 or later, a C++17 compiler, and OpenSSL development headers for the native sanitizer backend.
 - Platform-specific permissions for operations that require elevated access.
 
+On Debian/Ubuntu Linux, install the native build dependencies with `sudo apt install cmake g++ libssl-dev` (and `python3-venv` if needed). On Windows, install CMake, a C++17 toolchain such as Visual Studio Build Tools, and an OpenSSL development package discoverable by CMake.
+
 ### Setup
 
 ```bash
 git clone <repository-url>
 cd BitScan
 
-python -m venv .venv
+python3 -m venv .venv
 ```
 
 Activate the virtual environment:
@@ -174,6 +177,7 @@ Activate the virtual environment:
 **Windows PowerShell**
 
 ```powershell
+py -3 -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
@@ -186,7 +190,7 @@ source .venv/bin/activate
 Install dependencies and launch the application:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 cmake -S src/sanitizer/cpp -B src/sanitizer/cpp/build
 cmake --build src/sanitizer/cpp/build --config Release
 python main.py
